@@ -9,30 +9,66 @@ import (
 	"os/signal"
 )
 
-type DNSServer struct {
-	Addr *net.UDPAddr
-	Conn *net.UDPConn
-}
-
 var (
-	srv      *net.UDPConn
-	upstream *DNSServer
+	proxy    *net.UDPConn
+	upstream *net.UDPConn
 	blocked  map[string]bool
+	answer   []byte
 )
 
 func main() {
-	var err error
+	if len(os.Args) < 4 {
+		fmt.Fprintf(os.Stderr, "Usage: %s upstream proxy list.txt\n\n"+
+			"   upstream - real upstream DNS address, e.g. 8.8.8.8\n"+
+			"   proxy    - your address, e.g. 127.0.0.1\n"+
+			"   list.txt - text file with addresses to kill\n",
+			os.Args[0],
+		)
+		os.Exit(1)
+	}
 
+	upIP := net.ParseIP(os.Args[1])
+	if upIP == nil {
+		fmt.Fprintf(os.Stderr, "ERROR: Can't parse upstream IP '%s'\n", os.Args[1])
+		os.Exit(2)
+	}
+
+	proxyIP := net.ParseIP(os.Args[2])
+	if proxyIP == nil {
+		fmt.Fprintf(os.Stderr, "ERROR: Can't parse proxy IP '%s'\n", os.Args[2])
+		os.Exit(2)
+	}
+
+	answer = []byte("\x00\x01\x00\x01\xff\xff\xff\xff\x00\x04")
+	answerIP := proxyIP.To4()
+	if answerIP == nil {
+		fmt.Fprintln(os.Stderr, "ERROR: IPv6 is not supported, sorry")
+		os.Exit(3)
+	}
+	answer = append(answer, answerIP...)
+
+	// here be list.txt actual parsing
 	blocked = map[string]bool{
 		"wp.pl.": true,
 	}
 
-	upstream, err = newDNSServer("192.168.0.3", 53)
+	var err error
+	upAddr := &net.UDPAddr{IP: upIP, Port: 53}
+	upstream, err = net.DialUDP("udp", nil, upAddr)
 	if err != nil {
-		log.Fatalln("Unable add upstream:", err)
+		fmt.Fprintf(os.Stderr, "ERROR: %s\n", err)
+		os.Exit(2)
 	}
 
-	go runServerProxy("192.168.0.11", 5354)
+	proxyAddr := &net.UDPAddr{IP: proxyIP, Port: 5354}
+	proxy, err = net.ListenUDP("udp", proxyAddr)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "ERROR: %s\n", err)
+		os.Exit(2)
+	}
+	defer proxy.Close()
+
+	go runServerProxy()
 
 	sig := make(chan os.Signal)
 	signal.Notify(sig, os.Interrupt)
@@ -47,38 +83,14 @@ forever:
 	}
 }
 
-func newDNSServer(addr string, port int) (ds *DNSServer, err error) {
-	ds = &DNSServer{
-		Addr: &net.UDPAddr{
-			IP:   net.ParseIP(addr),
-			Port: port,
-		},
-	}
-	ds.Conn, err = net.DialUDP("udp", nil, ds.Addr)
+func runServerProxy() {
+	log.Println("DNS: Started server at", proxy.LocalAddr())
 
-	return
-}
-
-func runServerProxy(addr string, port int) {
-	var err error
-
-	fulladdr := fmt.Sprintf("%s:%d", addr, port)
-	udpaddr := &net.UDPAddr{
-		IP:   net.ParseIP(addr),
-		Port: port,
-	}
-
-	srv, err = net.ListenUDP("udp", udpaddr)
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer srv.Close()
-
-	log.Println("DNS: Started server at", fulladdr)
 	buf := make([]byte, 65536)
 	oobuf := make([]byte, 512)
+
 	for {
-		n, _, _, addr, err := srv.ReadMsgUDP(buf, oobuf)
+		n, _, _, addr, err := proxy.ReadMsgUDP(buf, oobuf)
 		if err != nil {
 			log.Println("DNS ERROR:", err)
 			continue
@@ -87,95 +99,96 @@ func runServerProxy(addr string, port int) {
 		go handleDNS(buf[:n], addr)
 	}
 
-	panic("not reachable")
+	panic("not reachable (1)")
 }
 
-func peekMsg(raw []byte) (names []string) {
-	var buf bytes.Buffer
-	qtcount := uint16(raw[5])
-	offset := uint16(12)
+func handleDNS(msg []byte, from *net.UDPAddr) {
+	var domain bytes.Buffer
+	var block bool
 
-	for i := uint16(0); i < qtcount; i++ {
-	loop:
+	log.Println("DNS: Query from", from)
+
+	// peak query
+	count := uint16(msg[5]) // question counter
+	offset := uint16(12)    // point to first domain name
+
+	// BAD
+	if count != 1 {
+		log.Fatalln("DNS: Question counter =", count)
+		os.Exit(127)
+	}
+	// END BAD
+
+outer:
+	for count > 0 {
+	inner:
 		for {
-			length := int8(raw[offset])
+			length := int8(msg[offset])
 			if length == 0 {
-				break loop
+				break inner
 			}
 			offset++
-			buf.WriteString(string(raw[offset : offset+uint16(length)]))
-			buf.WriteString(".")
+			domain.WriteString(string(msg[offset : offset+uint16(length)]))
+			domain.WriteString(".")
 			offset += uint16(length)
 		}
-		names = append(names, buf.String())
-		buf.Reset()
+		if _, ok := blocked[domain.String()]; ok {
+			block = true
+			break outer
+		}
+		domain.Reset()
+
 		offset += 4
+		count--
 	}
+	// end peak query
 
-	return
-}
+	if block {
+		// fake answer
+		host := domain.String()
+		log.Println("DNS: Blocking due to", host)
 
-func blockMsg(host string, payload []byte, addr *net.UDPAddr) {
-	log.Println("DNS: Blocking", host)
+		msg[2] = uint8(129) // flags upper byte
+		msg[3] = uint8(128) // flags lower byte
+		msg[7] = uint8(1)   // answer counter
 
-	payload[2] = uint8(129)
-	payload[3] = uint8(128)
-	payload[7] = uint8(1)
+		res := append(msg, msg[12:12+1+len(host)]...)
+		res = append(res, answer...)
+		_, err := proxy.WriteTo(res, from)
+		if err != nil {
+			log.Println("DNS ERROR:", err)
+		}
 
-	var ans bytes.Buffer
-	ans.WriteString(string(payload[12 : 12+1+len(host)]))
-	ans.WriteString("\x00\x01\x00\x01\xff\xff\xff\xff\x00\x04")
-	ans.WriteByte(192)
-	ans.WriteByte(168)
-	ans.WriteByte(0)
-	ans.WriteByte(11)
-
-	resp := append(payload, ans.Bytes()...)
-
-	_, err := srv.WriteTo(resp, addr)
-	if err != nil {
-		log.Println("DNS ERROR:", err)
-	}
-
-	return
-}
-
-func handleDNS(payload []byte, addr *net.UDPAddr) {
-	log.Println("DNS: Query from", addr)
-
-	names := peekMsg(payload)
-	for i, host := range names {
-		fmt.Printf("%d: '%s'\n", i+1, host)
-	}
-
-	for _, host := range names {
-		if _, ok := blocked[host]; ok {
-			go blockMsg(host, payload, addr)
+		log.Println("DNS: Sent fake answer")
+		return
+		// end fake answer
+	} else {
+		log.Println("DNS: Asking upstream")
+		_, err := upstream.Write(msg)
+		if err != nil {
+			log.Println("DNS ERROR:", err)
 			return
 		}
-	}
 
-	log.Println("DNS: Asking upstream", upstream.Addr)
-	_, err := upstream.Conn.Write(payload)
-	if err != nil {
-		log.Println("DNS ERROR:", err)
+		buf := make([]byte, 65536)
+		oobuf := make([]byte, 512)
+		n, _, _, _, err := upstream.ReadMsgUDP(buf, oobuf)
+		if err != nil {
+			log.Println("DNS ERROR:", err)
+			return
+		}
+
+		_, err = proxy.WriteTo(buf[:n], from)
+		if err != nil {
+			log.Println("DNS ERROR:", err)
+			return
+		}
+
+		log.Println("DNS: Relayed answer")
 		return
 	}
 
-	buf := make([]byte, 65536)
-	oobuf := make([]byte, 512)
-	n, _, _, _, err := upstream.Conn.ReadMsgUDP(buf, oobuf)
-	if err != nil {
-		log.Println("DNS ERROR:", err)
-		return
-	}
-
-	_, err = srv.WriteTo(buf[:n], addr)
-	if err != nil {
-		log.Println("DNS ERROR:", err)
-	}
-
-	return
+	panic("not reachable (2)")
 }
 
 // vim: ts=4 sw=4 sts=4
