@@ -60,7 +60,7 @@ func main() {
 	}
 	defer upstream.Close()
 
-	proxyAddr := &net.UDPAddr{IP: proxyIP, Port: 5354}
+	proxyAddr := &net.UDPAddr{IP: proxyIP, Port: 53}
 	proxy, err = net.ListenUDP("udp", proxyAddr)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "ERROR: %s\n", err)
@@ -116,7 +116,11 @@ func runServerProxy() {
 			continue
 		}
 
-		go handleDNS(buf[:n], addr)
+		if n < 12 {
+			log.Println("DNS ERROR: Query length:", n)
+		} else {
+			go handleDNS(buf[:n], addr)
+		}
 	}
 
 	panic("not reachable (1)")
@@ -135,8 +139,9 @@ func handleDNS(msg []byte, from *net.UDPAddr) {
 	var domain bytes.Buffer
 	var host string
 	var block bool
+	var try int
 
-	log.Println("DNS: Query from", from)
+	//log.Println("DNS: Query from", from)
 
 	// peak query
 	count := uint16(msg[5]) // question counter
@@ -163,6 +168,7 @@ outer:
 		}
 		host = domain.String()
 		testHost := host
+		try = 1
 
 	test:
 		for {
@@ -174,6 +180,7 @@ outer:
 			if testHost == "" {
 				break test
 			}
+			try++
 		}
 		domain.Reset()
 
@@ -184,7 +191,7 @@ outer:
 
 	if block {
 		// fake answer
-		log.Println("DNS: Blocking", host)
+		log.Printf("DNS: Blocking (%d) %s\n", try, host)
 
 		msg[2] = uint8(129) // flags upper byte
 		msg[3] = uint8(128) // flags lower byte
@@ -206,7 +213,7 @@ outer:
 		return
 		// end fake answer
 	} else {
-		log.Println("DNS: Asking upstream")
+		//log.Println("DNS: Asking upstream")
 		n, err := upstream.Write(msg)
 		if err != nil {
 			log.Println("DNS ERROR:", err)
@@ -235,7 +242,7 @@ outer:
 			return
 		}
 
-		log.Println("DNS: Relayed answer")
+		//log.Println("DNS: Relayed answer")
 		return
 	}
 

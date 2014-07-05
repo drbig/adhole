@@ -13,6 +13,6 @@ func handler(w http.ResponseWriter, req *http.Request) {
 
 func main() {
 	http.HandleFunc("/", handler)
-	log.Println("HTTP: Started at 192.168.9.11:8080")
-	log.Println(http.ListenAndServe("192.168.0.11:8080", nil))
+	log.Println("HTTP: Started at 192.168.9.11:80")
+	log.Println(http.ListenAndServe("192.168.0.11:80", nil))
 }
