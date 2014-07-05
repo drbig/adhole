@@ -17,10 +17,15 @@ type DNSServer struct {
 var (
 	srv      *net.UDPConn
 	upstream *DNSServer
+	blocked  map[string]bool
 )
 
 func main() {
 	var err error
+
+	blocked = map[string]bool{
+		"wp.pl.": true,
+	}
 
 	upstream, err = newDNSServer("192.168.0.3", 53)
 	if err != nil {
@@ -110,12 +115,44 @@ func peekMsg(raw []byte) (names []string) {
 	return
 }
 
+func blockMsg(host string, payload []byte, addr *net.UDPAddr) {
+	log.Println("DNS: Blocking", host)
+
+	payload[2] = uint8(129)
+	payload[3] = uint8(128)
+	payload[7] = uint8(1)
+
+	var ans bytes.Buffer
+	ans.WriteString(string(payload[12 : 12+1+len(host)]))
+	ans.WriteString("\x00\x01\x00\x01\xff\xff\xff\xff\x00\x04")
+	ans.WriteByte(192)
+	ans.WriteByte(168)
+	ans.WriteByte(0)
+	ans.WriteByte(11)
+
+	resp := append(payload, ans.Bytes()...)
+
+	_, err := srv.WriteTo(resp, addr)
+	if err != nil {
+		log.Println("DNS ERROR:", err)
+	}
+
+	return
+}
+
 func handleDNS(payload []byte, addr *net.UDPAddr) {
 	log.Println("DNS: Query from", addr)
 
 	names := peekMsg(payload)
 	for i, host := range names {
 		fmt.Printf("%d: '%s'\n", i+1, host)
+	}
+
+	for _, host := range names {
+		if _, ok := blocked[host]; ok {
+			go blockMsg(host, payload, addr)
+			return
+		}
 	}
 
 	log.Println("DNS: Asking upstream", upstream.Addr)
