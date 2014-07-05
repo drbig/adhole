@@ -4,8 +4,10 @@ import (
 	"bufio"
 	"bytes"
 	"fmt"
+	"io"
 	"log"
 	"net"
+	"net/http"
 	"os"
 	"os/signal"
 	"strings"
@@ -68,6 +70,7 @@ func main() {
 	}
 	defer proxy.Close()
 
+	go runServerNilData(os.Args[2])
 	go runServerProxy()
 
 	sig := make(chan os.Signal)
@@ -247,6 +250,18 @@ outer:
 	}
 
 	panic("not reachable (2)")
+}
+
+func nilHandler(w http.ResponseWriter, req *http.Request) {
+	log.Printf("HTTP: Request %s %s\n", req.Method, req.URL)
+	io.WriteString(w, "nil\n")
+}
+
+func runServerNilData(host string) {
+	addr := fmt.Sprintf("%s:80", host)
+	http.HandleFunc("/", nilHandler)
+	log.Println("HTTP: Started at", addr)
+	log.Fatalln(http.ListenAndServe(addr, nil))
 }
 
 // vim: ts=4 sw=4 sts=4
