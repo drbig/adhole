@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
 	"log"
 	"net"
@@ -84,9 +85,40 @@ func runServerProxy(addr string, port int) {
 	panic("not reachable")
 }
 
+func peekMsg(raw []byte) (names []string) {
+	var buf bytes.Buffer
+	qtcount := uint16(raw[5])
+	offset := uint16(12)
+
+	for i := uint16(0); i < qtcount; i++ {
+	loop:
+		for {
+			length := int8(raw[offset])
+			if length == 0 {
+				break loop
+			}
+			offset++
+			buf.WriteString(string(raw[offset : offset+uint16(length)]))
+			buf.WriteString(".")
+			offset += uint16(length)
+		}
+		names = append(names, buf.String())
+		buf.Reset()
+		offset += 4
+	}
+
+	return
+}
+
 func handleDNS(payload []byte, addr *net.UDPAddr) {
 	log.Println("DNS: Query from", addr)
 
+	names := peekMsg(payload)
+	for i, host := range names {
+		fmt.Printf("%d: '%s'\n", i+1, host)
+	}
+
+	log.Println("DNS: Asking upstream", upstream.Addr)
 	_, err := upstream.Conn.Write(payload)
 	if err != nil {
 		log.Println("DNS ERROR:", err)
@@ -100,9 +132,8 @@ func handleDNS(payload []byte, addr *net.UDPAddr) {
 		log.Println("DNS ERROR:", err)
 		return
 	}
-	buf = buf[:n]
 
-	_, err = srv.WriteTo(buf, addr)
+	_, err = srv.WriteTo(buf[:n], addr)
 	if err != nil {
 		log.Println("DNS ERROR:", err)
 	}
