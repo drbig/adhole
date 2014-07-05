@@ -14,6 +14,13 @@ import (
 )
 
 var (
+	pixel = "\x47\x49\x46\x38\x39\x61\x01\x00\x01\x00\x80\x00\x00\xff\xff\xff\x00\x00\x00\x21\xf9\x04\x01\x00\x00\x00\x00\x2c\x00\x00\x00\x00\x01\x00\x01\x00\x00\x02\x02\x44\x01\x00\x3b"
+	exts  = map[string]bool{
+		"jpg":  true,
+		"jpeg": true,
+		"png":  true,
+		"gif":  true,
+	}
 	proxy    *net.UDPConn
 	upstream *net.UDPConn
 	blocked  map[string]bool
@@ -254,7 +261,16 @@ outer:
 
 func nilHandler(w http.ResponseWriter, req *http.Request) {
 	log.Printf("HTTP: Request %s %s\n", req.Method, req.URL)
-	io.WriteString(w, "nil\n")
+	parts := strings.Split(req.URL.Path, ".")
+	ext := parts[len(parts)-1]
+	if _, ok := exts[ext]; ok {
+		//log.Println("HTTP: Sending image")
+		w.Header()["Content-type"] = []string{"image/gif"}
+		io.WriteString(w, pixel)
+	} else {
+		//log.Println("HTTP: Sending string")
+		io.WriteString(w, "nil\n")
+	}
 }
 
 func runServerNilData(host string) {
