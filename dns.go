@@ -171,7 +171,7 @@ outer:
 				break outer
 			}
 			testHost = popPart(testHost)
-			if len(testHost) < 2 {
+			if testHost == "" {
 				break test
 			}
 		}
