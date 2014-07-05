@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"fmt"
 	"log"
@@ -47,10 +48,7 @@ func main() {
 	}
 	answer = append(answer, answerIP...)
 
-	// here be list.txt actual parsing
-	blocked = map[string]bool{
-		"wp.pl.": true,
-	}
+	parseList(os.Args[3])
 
 	var err error
 	upAddr := &net.UDPAddr{IP: upIP, Port: 53}
@@ -59,6 +57,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "ERROR: %s\n", err)
 		os.Exit(2)
 	}
+	defer upstream.Close()
 
 	proxyAddr := &net.UDPAddr{IP: proxyIP, Port: 5354}
 	proxy, err = net.ListenUDP("udp", proxyAddr)
@@ -81,6 +80,26 @@ forever:
 			break forever
 		}
 	}
+}
+
+func parseList(path string) {
+	file, err := os.Open(path)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "ERROR:", err)
+		os.Exit(2)
+	}
+	defer file.Close()
+
+	blocked = make(map[string]bool, 4096)
+	counter := 0
+	scn := bufio.NewScanner(file)
+	for scn.Scan() {
+		counter++
+		blocked[scn.Text()+"."] = true
+	}
+
+	log.Printf("DNS: Parsed %d entries from list\n", counter)
+	return
 }
 
 func runServerProxy() {
@@ -112,12 +131,12 @@ func handleDNS(msg []byte, from *net.UDPAddr) {
 	count := uint16(msg[5]) // question counter
 	offset := uint16(12)    // point to first domain name
 
-	// BAD
+	// TODO(drbig): Will this be a problem IRL?
 	if count != 1 {
 		log.Fatalln("DNS: Question counter =", count)
 		os.Exit(127)
 	}
-	// END BAD
+	// END
 
 outer:
 	for count > 0 {
