@@ -154,9 +154,14 @@ outer:
 
 		res := append(msg, msg[12:12+1+len(host)]...)
 		res = append(res, answer...)
-		_, err := proxy.WriteTo(res, from)
+		n, err := proxy.WriteTo(res, from)
 		if err != nil {
 			log.Println("DNS ERROR:", err)
+			return
+		}
+		if n != len(res) {
+			log.Println("DNS ERROR: Length mismatch")
+			return
 		}
 
 		log.Println("DNS: Sent fake answer")
@@ -164,23 +169,31 @@ outer:
 		// end fake answer
 	} else {
 		log.Println("DNS: Asking upstream")
-		_, err := upstream.Write(msg)
+		n, err := upstream.Write(msg)
 		if err != nil {
 			log.Println("DNS ERROR:", err)
+			return
+		}
+		if n != len(msg) {
+			log.Println("DNS ERROR: Length mismatch")
 			return
 		}
 
 		buf := make([]byte, 65536)
 		oobuf := make([]byte, 512)
-		n, _, _, _, err := upstream.ReadMsgUDP(buf, oobuf)
+		n, _, _, _, err = upstream.ReadMsgUDP(buf, oobuf)
 		if err != nil {
 			log.Println("DNS ERROR:", err)
 			return
 		}
 
-		_, err = proxy.WriteTo(buf[:n], from)
+		sn, err := proxy.WriteTo(buf[:n], from)
 		if err != nil {
 			log.Println("DNS ERROR:", err)
+			return
+		}
+		if sn != n {
+			log.Println("DNS ERROR: Length mismatch")
 			return
 		}
 
