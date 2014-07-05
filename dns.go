@@ -8,6 +8,7 @@ import (
 	"net"
 	"os"
 	"os/signal"
+	"strings"
 )
 
 var (
@@ -121,8 +122,18 @@ func runServerProxy() {
 	panic("not reachable (1)")
 }
 
+func popPart(host string) string {
+	parts := strings.Split(host, ".")
+	if len(parts) < 3 {
+		return ""
+	}
+
+	return strings.Join(parts[1:], ".")
+}
+
 func handleDNS(msg []byte, from *net.UDPAddr) {
 	var domain bytes.Buffer
+	var host string
 	var block bool
 
 	log.Println("DNS: Query from", from)
@@ -136,7 +147,6 @@ func handleDNS(msg []byte, from *net.UDPAddr) {
 		log.Fatalln("DNS: Question counter =", count)
 		os.Exit(127)
 	}
-	// END
 
 outer:
 	for count > 0 {
@@ -151,9 +161,19 @@ outer:
 			domain.WriteString(".")
 			offset += uint16(length)
 		}
-		if _, ok := blocked[domain.String()]; ok {
-			block = true
-			break outer
+		host = domain.String()
+		testHost := host
+
+	test:
+		for {
+			if _, ok := blocked[testHost]; ok {
+				block = true
+				break outer
+			}
+			testHost = popPart(testHost)
+			if len(testHost) < 2 {
+				break test
+			}
 		}
 		domain.Reset()
 
@@ -164,8 +184,7 @@ outer:
 
 	if block {
 		// fake answer
-		host := domain.String()
-		log.Println("DNS: Blocking due to", host)
+		log.Println("DNS: Blocking", host)
 
 		msg[2] = uint8(129) // flags upper byte
 		msg[3] = uint8(128) // flags lower byte
