@@ -11,11 +11,14 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"sync"
 )
 
 var (
-	pixel = "\x47\x49\x46\x38\x39\x61\x01\x00\x01\x00\x80\x00\x00\xff\xff\xff\x00\x00\x00\x21\xf9\x04\x01\x00\x00\x00\x00\x2c\x00\x00\x00\x00\x01\x00\x01\x00\x00\x02\x02\x44\x01\x00\x3b"
-	exts  = map[string]bool{
+	pixel = "\x47\x49\x46\x38\x39\x61\x01\x00\x01\x00\x80\x00\x00\xff\xff" +
+		"\xff\x00\x00\x00\x21\xf9\x04\x01\x00\x00\x00\x00\x2c\x00\x00" +
+		"\x00\x00\x01\x00\x01\x00\x00\x02\x02\x44\x01\x00\x3b"
+	exts = map[string]bool{
 		"jpg":  true,
 		"jpeg": true,
 		"png":  true,
@@ -25,6 +28,7 @@ var (
 	upstream *net.UDPConn
 	blocked  map[string]bool
 	answer   []byte
+	mtx      sync.Mutex
 )
 
 func main() {
@@ -77,8 +81,8 @@ func main() {
 	}
 	defer proxy.Close()
 
-	go runServerNilData(os.Args[2])
-	go runServerProxy()
+	go runServerHTTP(os.Args[2])
+	go runServerDNS()
 
 	sig := make(chan os.Signal)
 	signal.Notify(sig, os.Interrupt)
@@ -113,7 +117,7 @@ func parseList(path string) {
 	return
 }
 
-func runServerProxy() {
+func runServerDNS() {
 	log.Println("DNS: Started server at", proxy.LocalAddr())
 
 	buf := make([]byte, 65536)
@@ -126,8 +130,8 @@ func runServerProxy() {
 			continue
 		}
 
-		if n < 12 {
-			log.Println("DNS ERROR: Query length:", n)
+		if n < 13 {
+			log.Println("DNS ERROR: Msg length:", n)
 		} else {
 			go handleDNS(buf[:n], addr)
 		}
@@ -151,22 +155,27 @@ func handleDNS(msg []byte, from *net.UDPAddr) {
 	var block bool
 	var try int
 
-	//log.Println("DNS: Query from", from)
+	id := int(uint16(msg[0])<<8 + uint16(msg[1]))
+	log.Printf("DNS: Query id %d from %s\n", id, from)
 
 	// peak query
 	count := uint16(msg[5]) // question counter
 	offset := uint16(12)    // point to first domain name
+	max := uint16(len(msg))
 
 	// TODO(drbig): Will this be a problem IRL?
 	if count != 1 {
 		log.Fatalln("DNS: Question counter =", count)
-		os.Exit(127)
 	}
 
 outer:
 	for count > 0 {
 	inner:
 		for {
+			if offset > max {
+				log.Println("DNS ERROR: Offset out of range", offset, max)
+				break outer
+			}
 			length := int8(msg[offset])
 			if length == 0 {
 				break inner
@@ -209,7 +218,9 @@ outer:
 
 		res := append(msg, msg[12:12+1+len(host)]...)
 		res = append(res, answer...)
+		mtx.Lock()
 		n, err := proxy.WriteTo(res, from)
+		mtx.Unlock()
 		if err != nil {
 			log.Println("DNS ERROR:", err)
 			return
@@ -223,8 +234,10 @@ outer:
 		return
 		// end fake answer
 	} else {
-		//log.Println("DNS: Asking upstream")
+		log.Println("DNS: Asking upstream")
+		mtx.Lock()
 		n, err := upstream.Write(msg)
+		mtx.Unlock()
 		if err != nil {
 			log.Println("DNS ERROR:", err)
 			return
@@ -242,7 +255,14 @@ outer:
 			return
 		}
 
+		rid := int(uint16(buf[0])<<8 + uint16(buf[1]))
+		if rid != id {
+			log.Fatalln("DNS ERROR: ID mismatch", id, rid)
+		}
+
+		mtx.Lock()
 		sn, err := proxy.WriteTo(buf[:n], from)
+		mtx.Unlock()
 		if err != nil {
 			log.Println("DNS ERROR:", err)
 			return
@@ -252,32 +272,36 @@ outer:
 			return
 		}
 
-		//log.Println("DNS: Relayed answer")
+		log.Println("DNS: Relayed answer")
 		return
 	}
 
 	panic("not reachable (2)")
 }
 
-func nilHandler(w http.ResponseWriter, req *http.Request) {
-	log.Printf("HTTP: Request %s %s\n", req.Method, req.URL)
+func handleHTTP(w http.ResponseWriter, req *http.Request) {
+	log.Printf("HTTP: Request %s %s %s\n", req.Method, req.Host, req.RequestURI)
 	parts := strings.Split(req.URL.Path, ".")
 	ext := parts[len(parts)-1]
 	if _, ok := exts[ext]; ok {
-		//log.Println("HTTP: Sending image")
+		log.Println("HTTP: Sending image")
 		w.Header()["Content-type"] = []string{"image/gif"}
 		io.WriteString(w, pixel)
 	} else {
-		//log.Println("HTTP: Sending string")
+		log.Println("HTTP: Sending string")
 		io.WriteString(w, "nil\n")
 	}
+
+	return
 }
 
-func runServerNilData(host string) {
+func runServerHTTP(host string) {
 	addr := fmt.Sprintf("%s:80", host)
-	http.HandleFunc("/", nilHandler)
+	http.HandleFunc("/", handleHTTP)
 	log.Println("HTTP: Started at", addr)
 	log.Fatalln(http.ListenAndServe(addr, nil))
+
+	panic("not reachable (3)")
 }
 
 // vim: ts=4 sw=4 sts=4
