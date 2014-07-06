@@ -122,8 +122,8 @@ func parseList(path string) {
 func runServerLocalDNS() {
 	log.Println("DNS: Started local server at", proxy.LocalAddr())
 
-	buf := make([]byte, 65536)
-	oobuf := make([]byte, 512)
+	buf := make([]byte, 512)
+	oobuf := make([]byte, 64)
 
 	for {
 		n, _, _, addr, err := proxy.ReadMsgUDP(buf, oobuf)
@@ -135,7 +135,9 @@ func runServerLocalDNS() {
 		if n < 13 {
 			log.Println("DNS ERROR: Msg length:", n)
 		} else {
-			go handleDNS(buf[:n], addr)
+			msg := make([]byte, n)
+			copy(msg, buf[:n])
+			go handleDNS(msg, addr)
 		}
 	}
 
@@ -145,8 +147,8 @@ func runServerLocalDNS() {
 func runServerUpstreamDNS() {
 	log.Println("DNS: Started upstream server")
 
-	buf := make([]byte, 65536)
-	oobuf := make([]byte, 512)
+	buf := make([]byte, 512)
+	oobuf := make([]byte, 64)
 
 	for {
 		n, _, _, _, err := upstream.ReadMsgUDP(buf, oobuf)
