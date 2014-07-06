@@ -11,7 +11,6 @@ import (
 	"os"
 	"os/signal"
 	"strings"
-	"sync"
 )
 
 var (
@@ -29,7 +28,6 @@ var (
 	queries  map[int]*net.UDPAddr
 	blocked  map[string]bool
 	answer   []byte
-	mtx      sync.Mutex
 )
 
 func main() {
@@ -159,10 +157,8 @@ func runServerUpstreamDNS() {
 
 		id := int(uint16(buf[0])<<8 + uint16(buf[1]))
 		if to, ok := queries[id]; ok {
-			mtx.Lock()
 			delete(queries, id)
 			sn, err := proxy.WriteTo(buf[:n], to)
-			mtx.Unlock()
 			if err != nil {
 				log.Println("DNS ERROR:", err)
 				continue
@@ -256,9 +252,7 @@ outer:
 
 		res := append(msg, msg[12:12+1+len(host)]...)
 		res = append(res, answer...)
-		mtx.Lock()
 		n, err := proxy.WriteTo(res, from)
-		mtx.Unlock()
 		if err != nil {
 			log.Println("DNS ERROR:", err)
 			return
@@ -273,10 +267,8 @@ outer:
 		// end fake answer
 	} else {
 		log.Println("DNS: Asking upstream")
-		mtx.Lock()
 		queries[id] = from
 		n, err := upstream.Write(msg)
-		mtx.Unlock()
 		if err != nil {
 			log.Println("DNS ERROR:", err)
 			goto clean
@@ -290,12 +282,10 @@ outer:
 	}
 
 clean:
-	mtx.Lock()
 	delete(queries, id)
-	mtx.Unlock()
 	return
 
-	panic("not reachable (2)")
+	panic("not reachable (3)")
 }
 
 func handleHTTP(w http.ResponseWriter, req *http.Request) {
@@ -320,7 +310,7 @@ func runServerHTTP(host string) {
 	log.Println("HTTP: Started at", addr)
 	log.Fatalln(http.ListenAndServe(addr, nil))
 
-	panic("not reachable (3)")
+	panic("not reachable (4)")
 }
 
 // vim: ts=4 sw=4 sts=4
