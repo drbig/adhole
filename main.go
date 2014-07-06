@@ -26,6 +26,7 @@ var (
 	}
 	proxy    *net.UDPConn
 	upstream *net.UDPConn
+	queries  map[int]*net.UDPAddr
 	blocked  map[string]bool
 	answer   []byte
 	mtx      sync.Mutex
@@ -81,8 +82,11 @@ func main() {
 	}
 	defer proxy.Close()
 
+	queries = make(map[int]*net.UDPAddr, 4096)
+
 	go runServerHTTP(os.Args[2])
-	go runServerDNS()
+	go runServerLocalDNS()
+	go runServerUpstreamDNS()
 
 	sig := make(chan os.Signal)
 	signal.Notify(sig, os.Interrupt)
@@ -117,8 +121,8 @@ func parseList(path string) {
 	return
 }
 
-func runServerDNS() {
-	log.Println("DNS: Started server at", proxy.LocalAddr())
+func runServerLocalDNS() {
+	log.Println("DNS: Started local server at", proxy.LocalAddr())
 
 	buf := make([]byte, 65536)
 	oobuf := make([]byte, 512)
@@ -138,6 +142,40 @@ func runServerDNS() {
 	}
 
 	panic("not reachable (1)")
+}
+
+func runServerUpstreamDNS() {
+	log.Println("DNS: Started upstream server")
+
+	buf := make([]byte, 65536)
+	oobuf := make([]byte, 512)
+
+	for {
+		n, _, _, _, err := upstream.ReadMsgUDP(buf, oobuf)
+		if err != nil {
+			log.Println("DNS ERROR:", err)
+			continue
+		}
+
+		id := int(uint16(buf[0])<<8 + uint16(buf[1]))
+		if to, ok := queries[id]; ok {
+			mtx.Lock()
+			delete(queries, id)
+			sn, err := proxy.WriteTo(buf[:n], to)
+			mtx.Unlock()
+			if err != nil {
+				log.Println("DNS ERROR:", err)
+				continue
+			}
+			if sn != n {
+				log.Println("DNS ERROR: Length mismatch")
+				continue
+			}
+			log.Println("DNS: Relayed answer to query", id)
+		}
+	}
+
+	panic("not reachable (2)")
 }
 
 func popPart(host string) string {
@@ -236,45 +274,26 @@ outer:
 	} else {
 		log.Println("DNS: Asking upstream")
 		mtx.Lock()
+		queries[id] = from
 		n, err := upstream.Write(msg)
 		mtx.Unlock()
 		if err != nil {
 			log.Println("DNS ERROR:", err)
-			return
+			goto clean
 		}
 		if n != len(msg) {
 			log.Println("DNS ERROR: Length mismatch")
-			return
+			goto clean
 		}
 
-		buf := make([]byte, 65536)
-		oobuf := make([]byte, 512)
-		n, _, _, _, err = upstream.ReadMsgUDP(buf, oobuf)
-		if err != nil {
-			log.Println("DNS ERROR:", err)
-			return
-		}
-
-		rid := int(uint16(buf[0])<<8 + uint16(buf[1]))
-		if rid != id {
-			log.Fatalln("DNS ERROR: ID mismatch", id, rid)
-		}
-
-		mtx.Lock()
-		sn, err := proxy.WriteTo(buf[:n], from)
-		mtx.Unlock()
-		if err != nil {
-			log.Println("DNS ERROR:", err)
-			return
-		}
-		if sn != n {
-			log.Println("DNS ERROR: Length mismatch")
-			return
-		}
-
-		log.Println("DNS: Relayed answer")
 		return
 	}
+
+clean:
+	mtx.Lock()
+	delete(queries, id)
+	mtx.Unlock()
+	return
 
 	panic("not reachable (2)")
 }
