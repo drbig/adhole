@@ -102,7 +102,7 @@ func main() {
 	go runServerLocalDNS()
 
 	sig := make(chan os.Signal)
-	signal.Notify(sig, syscall.SIGINT, syscall.SIGUSR1)
+	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM, syscall.SIGUSR1)
 
 forever:
 	for {
