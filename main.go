@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"flag"
 	"fmt"
 	"io"
 	"log"
@@ -14,7 +15,10 @@ import (
 )
 
 var (
-	pixel = "\x47\x49\x46\x38\x39\x61\x01\x00\x01\x00\x80\x00\x00\xff\xff" +
+	flagVerbose  = flag.Bool("v", false, "be verbose")
+	flagHTTPPort = flag.Int("hport", 80, "HTTP server port")
+	flagDNSPort  = flag.Int("dport", 53, "DNS server port")
+	pixel        = "\x47\x49\x46\x38\x39\x61\x01\x00\x01\x00\x80\x00\x00\xff\xff" +
 		"\xff\x00\x00\x00\x21\xf9\x04\x01\x00\x00\x00\x00\x2c\x00\x00" +
 		"\x00\x00\x01\x00\x01\x00\x00\x02\x02\x44\x01\x00\x3b"
 	exts = map[string]bool{
@@ -31,25 +35,32 @@ var (
 )
 
 func main() {
-	if len(os.Args) < 4 {
-		fmt.Fprintf(os.Stderr, "Usage: %s upstream proxy list.txt\n\n"+
-			"   upstream - real upstream DNS address, e.g. 8.8.8.8\n"+
-			"   proxy    - your address, e.g. 127.0.0.1\n"+
-			"   list.txt - text file with addresses to kill\n",
+	flag.Usage = func() {
+		fmt.Fprintf(os.Stderr, "Usage: %s [options] upstream proxy list.txt\n\n"+
+			"upstream - real upstream DNS address, e.g. 8.8.8.8\n"+
+			"proxy    - your address, e.g. 127.0.0.1\n"+
+			"list.txt - text file with addresses to kill\n\n",
 			os.Args[0],
 		)
+		flag.PrintDefaults()
+		return
+	}
+	flag.Parse()
+
+	if len(flag.Args()) < 3 {
+		flag.Usage()
 		os.Exit(1)
 	}
 
-	upIP := net.ParseIP(os.Args[1])
+	upIP := net.ParseIP(flag.Arg(0))
 	if upIP == nil {
-		fmt.Fprintf(os.Stderr, "ERROR: Can't parse upstream IP '%s'\n", os.Args[1])
+		fmt.Fprintf(os.Stderr, "ERROR: Can't parse upstream IP '%s'\n", flag.Arg(0))
 		os.Exit(2)
 	}
 
-	proxyIP := net.ParseIP(os.Args[2])
+	proxyIP := net.ParseIP(flag.Arg(1))
 	if proxyIP == nil {
-		fmt.Fprintf(os.Stderr, "ERROR: Can't parse proxy IP '%s'\n", os.Args[2])
+		fmt.Fprintf(os.Stderr, "ERROR: Can't parse proxy IP '%s'\n", flag.Arg(1))
 		os.Exit(2)
 	}
 
@@ -61,7 +72,7 @@ func main() {
 	}
 	answer = append(answer, answerIP...)
 
-	parseList(os.Args[3])
+	parseList(flag.Arg(2))
 
 	var err error
 	upAddr := &net.UDPAddr{IP: upIP, Port: 53}
@@ -72,7 +83,7 @@ func main() {
 	}
 	defer upstream.Close()
 
-	proxyAddr := &net.UDPAddr{IP: proxyIP, Port: 53}
+	proxyAddr := &net.UDPAddr{IP: proxyIP, Port: *flagDNSPort}
 	proxy, err = net.ListenUDP("udp", proxyAddr)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "ERROR: %s\n", err)
@@ -82,7 +93,7 @@ func main() {
 
 	queries = make(map[int]*net.UDPAddr, 4096)
 
-	go runServerHTTP(os.Args[2])
+	go runServerHTTP(flag.Arg(1))
 	go runServerLocalDNS()
 	go runServerUpstreamDNS()
 
@@ -132,16 +143,12 @@ func runServerLocalDNS() {
 			continue
 		}
 
-		if n < 13 {
-			log.Println("DNS ERROR: Msg length:", n)
-		} else {
-			msg := make([]byte, n)
-			copy(msg, buf[:n])
-			go handleDNS(msg, addr)
-		}
+		msg := make([]byte, n)
+		copy(msg, buf[:n])
+		go handleDNS(msg, addr)
 	}
 
-	panic("not reachable (1)")
+	panic("not reachable")
 }
 
 func runServerUpstreamDNS() {
@@ -160,20 +167,18 @@ func runServerUpstreamDNS() {
 		id := int(uint16(buf[0])<<8 + uint16(buf[1]))
 		if to, ok := queries[id]; ok {
 			delete(queries, id)
-			sn, err := proxy.WriteTo(buf[:n], to)
+			_, err := proxy.WriteTo(buf[:n], to)
 			if err != nil {
 				log.Println("DNS ERROR:", err)
 				continue
 			}
-			if sn != n {
-				log.Println("DNS ERROR: Length mismatch")
-				continue
+			if *flagVerbose {
+				log.Println("DNS: Relayed answer to query", id)
 			}
-			log.Println("DNS: Relayed answer to query", id)
 		}
 	}
 
-	panic("not reachable (2)")
+	panic("not reachable")
 }
 
 func popPart(host string) string {
@@ -192,26 +197,23 @@ func handleDNS(msg []byte, from *net.UDPAddr) {
 	var try int
 
 	id := int(uint16(msg[0])<<8 + uint16(msg[1]))
-	log.Printf("DNS: Query id %d from %s\n", id, from)
+	if *flagVerbose {
+		log.Printf("DNS: Query id %d from %s\n", id, from)
+	}
 
 	// peak query
 	count := uint16(msg[5]) // question counter
 	offset := uint16(12)    // point to first domain name
-	max := uint16(len(msg))
 
-	// TODO(drbig): Will this be a problem IRL?
 	if count != 1 {
-		log.Fatalln("DNS: Question counter =", count)
+		log.Printf("DNS WARN: Query id %d from %s has %d questions\n", id, from, count)
+		return
 	}
 
 outer:
 	for count > 0 {
 	inner:
 		for {
-			if offset > max {
-				log.Println("DNS ERROR: Offset out of range", offset, max)
-				break outer
-			}
 			length := int8(msg[offset])
 			if length == 0 {
 				break inner
@@ -246,7 +248,9 @@ outer:
 
 	if block {
 		// fake answer
-		log.Printf("DNS: Blocking (%d) %s\n", try, host)
+		if *flagVerbose {
+			log.Printf("DNS: Blocking (%d) %s\n", try, host)
+		}
 
 		msg[2] = uint8(129) // flags upper byte
 		msg[3] = uint8(128) // flags lower byte
@@ -254,32 +258,26 @@ outer:
 
 		res := append(msg, msg[12:12+1+len(host)]...)
 		res = append(res, answer...)
-		n, err := proxy.WriteTo(res, from)
+		_, err := proxy.WriteTo(res, from)
 		if err != nil {
 			log.Println("DNS ERROR:", err)
 			return
 		}
-		if n != len(res) {
-			log.Println("DNS ERROR: Length mismatch")
-			return
+		if *flagVerbose {
+			log.Println("DNS: Sent fake answer")
 		}
-
-		log.Println("DNS: Sent fake answer")
 		return
 		// end fake answer
 	} else {
-		log.Println("DNS: Asking upstream")
+		if *flagVerbose {
+			log.Println("DNS: Asking upstream")
+		}
 		queries[id] = from
-		n, err := upstream.Write(msg)
+		_, err := upstream.Write(msg)
 		if err != nil {
 			log.Println("DNS ERROR:", err)
 			goto clean
 		}
-		if n != len(msg) {
-			log.Println("DNS ERROR: Length mismatch")
-			goto clean
-		}
-
 		return
 	}
 
@@ -287,32 +285,38 @@ clean:
 	delete(queries, id)
 	return
 
-	panic("not reachable (3)")
+	panic("not reachable")
 }
 
 func handleHTTP(w http.ResponseWriter, req *http.Request) {
-	log.Printf("HTTP: Request %s %s %s\n", req.Method, req.Host, req.RequestURI)
-	parts := strings.Split(req.URL.Path, ".")
-	ext := parts[len(parts)-1]
-	if _, ok := exts[ext]; ok {
-		log.Println("HTTP: Sending image")
-		w.Header()["Content-type"] = []string{"image/gif"}
-		io.WriteString(w, pixel)
-	} else {
-		log.Println("HTTP: Sending string")
-		io.WriteString(w, "nil\n")
+	if *flagVerbose {
+		log.Printf("HTTP: Request %s %s %s\n", req.Method, req.Host, req.RequestURI)
 	}
+	w.Header()["Content-type"] = []string{"image/gif"}
+	io.WriteString(w, pixel)
+	/*
+		    parts := strings.Split(req.URL.Path, ".")
+		    ext := parts[len(parts)-1]
+		    if _, ok := exts[ext]; ok {
+		        log.Println("HTTP: Sending image")
+		        w.Header()["Content-type"] = []string{"image/gif"}
+		        io.WriteString(w, pixel)
+			} else {
+				log.Println("HTTP: Sending string")
+				io.WriteString(w, "nil\n")
+			}
+	*/
 
 	return
 }
 
 func runServerHTTP(host string) {
-	addr := fmt.Sprintf("%s:80", host)
+	addr := fmt.Sprintf("%s:%d", host, *flagHTTPPort)
 	http.HandleFunc("/", handleHTTP)
 	log.Println("HTTP: Started at", addr)
 	log.Fatalln(http.ListenAndServe(addr, nil))
 
-	panic("not reachable (4)")
+	panic("not reachable")
 }
 
 // vim: ts=4 sw=4 sts=4
