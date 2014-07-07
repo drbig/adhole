@@ -40,8 +40,8 @@ func main() {
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage: %s [options] upstream proxy list.txt\n\n"+
 			"upstream - real upstream DNS address, e.g. 8.8.8.8\n"+
-			"proxy    - your address, e.g. 127.0.0.1\n"+
-			"list.txt - text file with addresses to kill\n\n",
+			"proxy    - servers' bind address, e.g. 127.0.0.1\n"+
+			"list.txt - text file with domains to block\n\n",
 			os.Args[0],
 		)
 		flag.PrintDefaults()
