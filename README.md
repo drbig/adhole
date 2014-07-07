@@ -32,6 +32,7 @@ little adventure in dealing with binary protocols the low-level way.
     
       -dport=53: DNS server port
       -hport=80: HTTP server port
+      -t=100ms: upstream query timeout
       -v=false: be verbose
 
 Note that you will need root privileges to run it on the default ports.
@@ -68,9 +69,10 @@ Thanks to the great [expvar](http://golang.org/pkg/expvar/) package you can
 monitor some statistics by visiting `http://proxy.addr/debug/vars`. The 
 following items are relevant:
 
-  * `statsQuestion` - number of received queries
+  * `statsQuestions` - number of received queries
   * `statsRelayed` - number of queries relayed to the real server
   * `statsBlocked` - number of queries blocked
+  * `statsTimedout` - number of relayed queries that timed out
   * `statsServed` - number of HTTP requests served
   * `statsErrors` - number of errors encountered
   * `statsRules` - number of items read from the blacklist
@@ -83,6 +85,7 @@ You can also reload the blacklist file while AdHole is running by sending it a
   * Edge cases (multiple questions per query, anybody?)
   * Even less data shuffling
   * IPv4 only
+  * Does Windows have `syscall.SIGUSR1`?
 
 ## Copyright
 

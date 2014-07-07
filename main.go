@@ -14,15 +14,18 @@ import (
 	"os/signal"
 	"strings"
 	"syscall"
+	"time"
 )
 
 var (
 	flagVerbose  = flag.Bool("v", false, "be verbose")
 	flagHTTPPort = flag.Int("hport", 80, "HTTP server port")
 	flagDNSPort  = flag.Int("dport", 53, "DNS server port")
+	flagTimeout  = flag.Duration("t", 100*time.Millisecond, "upstream query timeout")
 	cntMsgs      = expvar.NewInt("statsQuestions")
 	cntRelayed   = expvar.NewInt("statsRelayed")
 	cntBlocked   = expvar.NewInt("statsBlocked")
+	cntTimedout  = expvar.NewInt("statsTimedout")
 	cntServed    = expvar.NewInt("statsServed")
 	cntErrors    = expvar.NewInt("statsErrors")
 	cntRules     = expvar.NewInt("statsRules")
@@ -260,7 +263,19 @@ func handleDNS(msg []byte, from *net.UDPAddr) {
 			log.Println("DNS ERROR:", err)
 			cntErrors.Add(1)
 			delete(queries, id)
+			return
 		}
+		go func(queryID int) {
+			time.Sleep(*flagTimeout)
+			if queryFrom, ok := queries[queryID]; ok {
+				if *flagVerbose {
+					fmt.Printf("DNS WARN: Query id %d from %s timed out\n", queryID, queryFrom)
+				}
+				cntTimedout.Add(1)
+				delete(queries, queryID)
+			}
+			return
+		}(id)
 	}
 
 	return
