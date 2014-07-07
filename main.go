@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"expvar"
 	"flag"
 	"fmt"
 	"io"
@@ -18,6 +19,11 @@ var (
 	flagVerbose  = flag.Bool("v", false, "be verbose")
 	flagHTTPPort = flag.Int("hport", 80, "HTTP server port")
 	flagDNSPort  = flag.Int("dport", 53, "DNS server port")
+	cntMsgs      = expvar.NewInt("statsQuestions")
+	cntRelayed   = expvar.NewInt("statsRelayed")
+	cntBlocked   = expvar.NewInt("statsBlocked")
+	cntServed    = expvar.NewInt("statsServed")
+	cntErrors    = expvar.NewInt("statsErrors")
 	pixel        = "\x47\x49\x46\x38\x39\x61\x01\x00\x01\x00\x80\x00\x00\xff\xff" +
 		"\xff\x00\x00\x00\x21\xf9\x04\x01\x00\x00\x00\x00\x2c\x00\x00" +
 		"\x00\x00\x01\x00\x01\x00\x00\x02\x02\x44\x01\x00\x3b"
@@ -140,11 +146,13 @@ func runServerLocalDNS() {
 		n, _, _, addr, err := proxy.ReadMsgUDP(buf, oobuf)
 		if err != nil {
 			log.Println("DNS ERROR:", err)
+			cntErrors.Add(1)
 			continue
 		}
 
 		msg := make([]byte, n)
 		copy(msg, buf[:n])
+		cntMsgs.Add(1)
 		go handleDNS(msg, addr)
 	}
 
@@ -161,6 +169,7 @@ func runServerUpstreamDNS() {
 		n, _, _, _, err := upstream.ReadMsgUDP(buf, oobuf)
 		if err != nil {
 			log.Println("DNS ERROR:", err)
+			cntErrors.Add(1)
 			continue
 		}
 
@@ -170,8 +179,10 @@ func runServerUpstreamDNS() {
 			_, err := proxy.WriteTo(buf[:n], to)
 			if err != nil {
 				log.Println("DNS ERROR:", err)
+				cntErrors.Add(1)
 				continue
 			}
+			cntRelayed.Add(1)
 			if *flagVerbose {
 				log.Println("DNS: Relayed answer to query", id)
 			}
@@ -248,6 +259,7 @@ outer:
 
 	if block {
 		// fake answer
+		cntBlocked.Add(1)
 		if *flagVerbose {
 			log.Printf("DNS: Blocking (%d) %s\n", try, host)
 		}
@@ -261,6 +273,7 @@ outer:
 		_, err := proxy.WriteTo(res, from)
 		if err != nil {
 			log.Println("DNS ERROR:", err)
+			cntErrors.Add(1)
 			return
 		}
 		if *flagVerbose {
@@ -276,6 +289,7 @@ outer:
 		_, err := upstream.Write(msg)
 		if err != nil {
 			log.Println("DNS ERROR:", err)
+			cntErrors.Add(1)
 			goto clean
 		}
 		return
@@ -283,29 +297,17 @@ outer:
 
 clean:
 	delete(queries, id)
-	return
 
-	panic("not reachable")
+	return
 }
 
 func handleHTTP(w http.ResponseWriter, req *http.Request) {
 	if *flagVerbose {
 		log.Printf("HTTP: Request %s %s %s\n", req.Method, req.Host, req.RequestURI)
 	}
+	cntServed.Add(1)
 	w.Header()["Content-type"] = []string{"image/gif"}
 	io.WriteString(w, pixel)
-	/*
-		    parts := strings.Split(req.URL.Path, ".")
-		    ext := parts[len(parts)-1]
-		    if _, ok := exts[ext]; ok {
-		        log.Println("HTTP: Sending image")
-		        w.Header()["Content-type"] = []string{"image/gif"}
-		        io.WriteString(w, pixel)
-			} else {
-				log.Println("HTTP: Sending string")
-				io.WriteString(w, "nil\n")
-			}
-	*/
 
 	return
 }
