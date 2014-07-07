@@ -5,10 +5,11 @@ $(NAME): $(PARTS)
 	gofmt -w $(PARTS)
 	go build .
 
-test: $(PARTS)
-	go tool vet -all -v .
-
 docs: doc.go
 	godoc -notes="BUG|TODO" .
 
+test: $(PARTS)
+	go tool vet -all -v .
+
 .PHONY: test
+.PHONY: docs
