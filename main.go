@@ -268,9 +268,7 @@ func handleDNS(msg []byte, from *net.UDPAddr) {
 		go func(queryID int) {
 			time.Sleep(*flagTimeout)
 			if queryFrom, ok := queries[queryID]; ok {
-				if *flagVerbose {
-					fmt.Printf("DNS WARN: Query id %d from %s timed out\n", queryID, queryFrom)
-				}
+				fmt.Printf("DNS WARN: Query id %d from %s timed out\n", queryID, queryFrom)
 				cntTimedout.Add(1)
 				delete(queries, queryID)
 			}
