@@ -26,20 +26,14 @@ var (
 	cntServed    = expvar.NewInt("statsServed")
 	cntErrors    = expvar.NewInt("statsErrors")
 	cntRules     = expvar.NewInt("statsRules")
+	answer       = []byte("\x00\x01\x00\x01\xff\xff\xff\xff\x00\x04")
 	pixel        = "\x47\x49\x46\x38\x39\x61\x01\x00\x01\x00\x80\x00\x00\xff\xff" +
 		"\xff\x00\x00\x00\x21\xf9\x04\x01\x00\x00\x00\x00\x2c\x00\x00" +
 		"\x00\x00\x01\x00\x01\x00\x00\x02\x02\x44\x01\x00\x3b"
-	exts = map[string]bool{
-		"jpg":  true,
-		"jpeg": true,
-		"png":  true,
-		"gif":  true,
-	}
 	proxy    *net.UDPConn
 	upstream *net.UDPConn
 	queries  map[int]*net.UDPAddr
 	blocked  map[string]bool
-	answer   []byte
 )
 
 func main() {
@@ -72,7 +66,6 @@ func main() {
 		os.Exit(2)
 	}
 
-	answer = []byte("\x00\x01\x00\x01\xff\xff\xff\xff\x00\x04")
 	answerIP := proxyIP.To4()
 	if answerIP == nil {
 		fmt.Fprintln(os.Stderr, "ERROR: IPv6 is not supported, sorry")
@@ -102,8 +95,8 @@ func main() {
 	queries = make(map[int]*net.UDPAddr, 4096)
 
 	go runServerHTTP(flag.Arg(1))
-	go runServerLocalDNS()
 	go runServerUpstreamDNS()
+	go runServerLocalDNS()
 
 	sig := make(chan os.Signal)
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGUSR1)
@@ -126,7 +119,7 @@ forever:
 func parseList(path string) {
 	file, err := os.Open(path)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "ERROR:", err)
+		fmt.Fprintln(os.Stderr, "ERROR:", err)
 		os.Exit(2)
 	}
 	defer file.Close()
@@ -138,8 +131,8 @@ func parseList(path string) {
 		counter++
 		blocked[scn.Text()+"."] = true
 	}
-	cntRules.Set(int64(counter))
 	log.Printf("DNS: Parsed %d entries from list\n", counter)
+	cntRules.Set(int64(counter))
 
 	return
 }
@@ -163,8 +156,6 @@ func runServerLocalDNS() {
 		cntMsgs.Add(1)
 		go handleDNS(msg, addr)
 	}
-
-	panic("not reachable")
 }
 
 func runServerUpstreamDNS() {
@@ -190,30 +181,17 @@ func runServerUpstreamDNS() {
 				cntErrors.Add(1)
 				continue
 			}
-			cntRelayed.Add(1)
 			if *flagVerbose {
 				log.Println("DNS: Relayed answer to query", id)
 			}
+			cntRelayed.Add(1)
 		}
 	}
-
-	panic("not reachable")
-}
-
-func popPart(host string) string {
-	parts := strings.Split(host, ".")
-	if len(parts) < 3 {
-		return ""
-	}
-
-	return strings.Join(parts[1:], ".")
 }
 
 func handleDNS(msg []byte, from *net.UDPAddr) {
 	var domain bytes.Buffer
-	var host string
 	var block bool
-	var try int
 
 	id := int(uint16(msg[0])<<8 + uint16(msg[1]))
 	if *flagVerbose {
@@ -229,48 +207,41 @@ func handleDNS(msg []byte, from *net.UDPAddr) {
 		return
 	}
 
-outer:
-	for count > 0 {
-	inner:
-		for {
-			length := int8(msg[offset])
-			if length == 0 {
-				break inner
-			}
-			offset++
-			domain.WriteString(string(msg[offset : offset+uint16(length)]))
-			domain.WriteString(".")
-			offset += uint16(length)
+	for {
+		length := int8(msg[offset])
+		if length == 0 {
+			break
 		}
-		host = domain.String()
-		testHost := host
-		try = 1
-
-	test:
-		for {
-			if _, ok := blocked[testHost]; ok {
-				block = true
-				break outer
-			}
-			testHost = popPart(testHost)
-			if testHost == "" {
-				break test
-			}
-			try++
-		}
-		domain.Reset()
-
-		offset += 4
-		count--
+		offset++
+		domain.WriteString(string(msg[offset : offset+uint16(length)]))
+		domain.WriteString(".")
+		offset += uint16(length)
 	}
+	host := domain.String()
+	testHost := host
+	parts := strings.Split(host, ".")
+	try := 1
+	for {
+		if _, ok := blocked[testHost]; ok {
+			block = true
+			break
+		}
+		parts = parts[1:]
+		if len(parts) < 3 {
+			break
+		}
+		testHost = strings.Join(parts, ".")
+		try++
+	}
+	domain.Reset()
 	// end peak query
 
 	if block {
 		// fake answer
-		cntBlocked.Add(1)
 		if *flagVerbose {
 			log.Printf("DNS: Blocking (%d) %s\n", try, host)
 		}
+		cntBlocked.Add(1)
 
 		msg[2] = uint8(129) // flags upper byte
 		msg[3] = uint8(128) // flags lower byte
