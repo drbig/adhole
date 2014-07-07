@@ -17,6 +17,15 @@ import (
 	"time"
 )
 
+type query struct {
+	Host string
+	From *net.UDPAddr
+}
+
+func (q *query) String() string {
+	return fmt.Sprintf("from %s about %s", q.From, q.Host)
+}
+
 var (
 	flagVerbose  = flag.Bool("v", false, "be verbose")
 	flagHTTPPort = flag.Int("hport", 80, "HTTP server port")
@@ -35,7 +44,7 @@ var (
 		"\x00\x00\x01\x00\x01\x00\x00\x02\x02\x44\x01\x00\x3b"
 	proxy    *net.UDPConn
 	upstream *net.UDPConn
-	queries  map[int]*net.UDPAddr
+	queries  map[int]*query
 	blocked  map[string]bool
 )
 
@@ -95,7 +104,7 @@ func main() {
 	}
 	defer proxy.Close()
 
-	queries = make(map[int]*net.UDPAddr, 4096)
+	queries = make(map[int]*query, 4096)
 
 	go runServerHTTP(flag.Arg(1))
 	go runServerUpstreamDNS()
@@ -172,11 +181,11 @@ func runServerUpstreamDNS() {
 		}
 
 		id := int(uint16(buf[0])<<8 + uint16(buf[1]))
-		if to, ok := queries[id]; ok {
+		if query, ok := queries[id]; ok {
 			delete(queries, id)
-			_, err := proxy.WriteTo(buf[:n], to)
+			_, err := proxy.WriteTo(buf[:n], query.From)
 			if err != nil {
-				log.Println("DNS ERROR:", err)
+				log.Printf("DNS ERROR: Query id %d %s %s", id, query, err)
 				cntErrors.Add(1)
 				continue
 			}
@@ -257,7 +266,7 @@ func handleDNS(msg []byte, from *net.UDPAddr) {
 		if *flagVerbose {
 			log.Println("DNS: Asking upstream")
 		}
-		queries[id] = from
+		queries[id] = &query{From: from, Host: host}
 		_, err := upstream.Write(msg)
 		if err != nil {
 			log.Println("DNS ERROR:", err)
@@ -267,8 +276,8 @@ func handleDNS(msg []byte, from *net.UDPAddr) {
 		}
 		go func(queryID int) {
 			time.Sleep(*flagTimeout)
-			if queryFrom, ok := queries[queryID]; ok {
-				fmt.Printf("DNS WARN: Query id %d from %s timed out\n", queryID, queryFrom)
+			if query, ok := queries[queryID]; ok {
+				fmt.Printf("DNS WARN: Query id %d %s timed out\n", queryID, query)
 				cntTimedout.Add(1)
 				delete(queries, queryID)
 			}
