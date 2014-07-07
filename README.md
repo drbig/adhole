@@ -36,9 +36,20 @@ little adventure in dealing with binary protocols the low-level way.
 
 Note that you will need root privileges to run it on the default ports.
 
+List format is simply: one domain name per line. All subdomains of a given 
+domain will be blocked, so there is no need to use `*`. Domains should also not 
+end with a dot. The parser should also be indifferent to line endings. Example 
+list file:
+
+    101com.com
+    101order.com
+    103bees.com
+    123found.com
+    123pagerank.com
+
 To get a decent list of domains to block I recommend going 
 [here](http://pgl.yoyo.org/adservers/). Remember to set 'text only, one domain 
-per name' format before you export and save the list.
+per line' format before you export and save the list.
 
 Example [systemd](http://www.freedesktop.org/wiki/Software/systemd/) service 
 file:
