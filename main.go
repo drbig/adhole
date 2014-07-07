@@ -141,10 +141,8 @@ func runServerLocalDNS() {
 	log.Println("DNS: Started local server at", proxy.LocalAddr())
 
 	buf := make([]byte, 512)
-	oobuf := make([]byte, 64)
-
 	for {
-		n, _, _, addr, err := proxy.ReadMsgUDP(buf, oobuf)
+		n, _, _, addr, err := proxy.ReadMsgUDP(buf, nil)
 		if err != nil {
 			log.Println("DNS ERROR:", err)
 			cntErrors.Add(1)
@@ -162,10 +160,8 @@ func runServerUpstreamDNS() {
 	log.Println("DNS: Started upstream server")
 
 	buf := make([]byte, 512)
-	oobuf := make([]byte, 64)
-
 	for {
-		n, _, _, _, err := upstream.ReadMsgUDP(buf, oobuf)
+		n, _, _, _, err := upstream.ReadMsgUDP(buf, nil)
 		if err != nil {
 			log.Println("DNS ERROR:", err)
 			cntErrors.Add(1)
@@ -198,9 +194,8 @@ func handleDNS(msg []byte, from *net.UDPAddr) {
 		log.Printf("DNS: Query id %d from %s\n", id, from)
 	}
 
-	// peak query
-	count := uint16(msg[5]) // question counter
-	offset := uint16(12)    // point to first domain name
+	count := uint8(msg[5]) // question counter
+	offset := 12           // point to first domain name
 
 	if count != 1 {
 		log.Printf("DNS WARN: Query id %d from %s has %d questions\n", id, from, count)
@@ -213,13 +208,13 @@ func handleDNS(msg []byte, from *net.UDPAddr) {
 			break
 		}
 		offset++
-		domain.WriteString(string(msg[offset : offset+uint16(length)]))
+		domain.WriteString(string(msg[offset : offset+int(length)]))
 		domain.WriteString(".")
-		offset += uint16(length)
+		offset += int(length)
 	}
 	host := domain.String()
 	testHost := host
-	parts := strings.Split(host, ".")
+	parts := strings.Split(testHost, ".")
 	try := 1
 	for {
 		if _, ok := blocked[testHost]; ok {
@@ -233,11 +228,8 @@ func handleDNS(msg []byte, from *net.UDPAddr) {
 		testHost = strings.Join(parts, ".")
 		try++
 	}
-	domain.Reset()
-	// end peak query
 
 	if block {
-		// fake answer
 		if *flagVerbose {
 			log.Printf("DNS: Blocking (%d) %s\n", try, host)
 		}
@@ -247,9 +239,9 @@ func handleDNS(msg []byte, from *net.UDPAddr) {
 		msg[3] = uint8(128) // flags lower byte
 		msg[7] = uint8(1)   // answer counter
 
-		res := append(msg, msg[12:12+1+len(host)]...)
-		res = append(res, answer...)
-		_, err := proxy.WriteTo(res, from)
+		msg = append(msg, msg[12:12+1+len(host)]...) // domain
+		msg = append(msg, answer...)                 // payload
+		_, err := proxy.WriteTo(msg, from)
 		if err != nil {
 			log.Println("DNS ERROR:", err)
 			cntErrors.Add(1)
@@ -258,8 +250,6 @@ func handleDNS(msg []byte, from *net.UDPAddr) {
 		if *flagVerbose {
 			log.Println("DNS: Sent fake answer")
 		}
-		return
-		// end fake answer
 	} else {
 		if *flagVerbose {
 			log.Println("DNS: Asking upstream")
@@ -269,13 +259,9 @@ func handleDNS(msg []byte, from *net.UDPAddr) {
 		if err != nil {
 			log.Println("DNS ERROR:", err)
 			cntErrors.Add(1)
-			goto clean
+			delete(queries, id)
 		}
-		return
 	}
-
-clean:
-	delete(queries, id)
 
 	return
 }
