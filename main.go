@@ -120,6 +120,7 @@ forever:
 			switch s {
 			case syscall.SIGUSR1:
 				log.Println("SIGUSR1 received, reloading rules")
+				parseList(flag.Arg(2))
 			default:
 				log.Println("Signal received, stopping")
 				break forever
