@@ -32,7 +32,7 @@ little adventure in dealing with binary protocols the low-level way.
     
       -dport=53: DNS server port
       -hport=80: HTTP server port
-      -t=100ms: upstream query timeout
+      -t=5s: upstream query timeout
       -v=false: be verbose
 
 Note that you will need root privileges to run it on the default ports.

@@ -30,7 +30,7 @@ var (
 	flagVerbose  = flag.Bool("v", false, "be verbose")
 	flagHTTPPort = flag.Int("hport", 80, "HTTP server port")
 	flagDNSPort  = flag.Int("dport", 53, "DNS server port")
-	flagTimeout  = flag.Duration("t", 100*time.Millisecond, "upstream query timeout")
+	flagTimeout  = flag.Duration("t", 5*time.Second, "upstream query timeout")
 	cntMsgs      = expvar.NewInt("statsQuestions")
 	cntRelayed   = expvar.NewInt("statsRelayed")
 	cntBlocked   = expvar.NewInt("statsBlocked")
