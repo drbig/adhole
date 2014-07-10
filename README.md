@@ -49,8 +49,12 @@ list file:
     123pagerank.com
 
 To get a decent list of domains to block I recommend going 
-[here](http://pgl.yoyo.org/adservers/). Remember to set 'text only, one domain 
-per line' format before you export and save the list.
+[here](http://pgl.yoyo.org/adservers/) and generating a 'plain non-HTML list -- 
+as a plain list of hostnames (no HTML)' with 'no links back to this page' and 
+'view list as plain text:' ticked (that was so verbose...). Or alternatively 
+[this](http://pgl.yoyo.org/adservers/serverlist.php?hostformat=nohtml&showintro=
+0&startdate%5Bday%5D=&startdate%5Bmonth%5D=&startdate%5Byear%5D=&mimetype=plaint
+ext) should work as a direct link to the current list...
 
 Example [systemd](http://www.freedesktop.org/wiki/Software/systemd/) service 
 file:
