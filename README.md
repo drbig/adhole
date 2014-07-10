@@ -78,14 +78,20 @@ following items are relevant:
   * `statsRules` - number of items read from the blacklist
 
 You can also reload the blacklist file while AdHole is running by sending it a 
-`SIGUSR1` (i.e. ``kill -SIGUSR1 `pidof adhole` ``).
+`SIGUSR1` - i.e. ``kill -SIGUSR1 `pidof adhole` `` (this will only work on 
+Unix-like systems).
+
+**Tested on**
+
+  * Linux - amd64, armv6l
+  * Windows XP - x86
 
 ## Bugs / Todo
 
   * Edge cases (multiple questions per query, anybody?)
   * Even less data shuffling
   * IPv4 only
-  * Does Windows have `syscall.SIGUSR1`?
+  * ~~Does Windows have `syscall.SIGUSR1`?~~ Of course it does not
 
 ## Copyright
 

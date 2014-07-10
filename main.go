@@ -11,9 +11,7 @@ import (
 	"net"
 	"net/http"
 	"os"
-	"os/signal"
 	"strings"
-	"syscall"
 	"time"
 )
 
@@ -72,24 +70,30 @@ func main() {
 		os.Exit(2)
 	}
 
+	upIP = upIP.To4()
+	if upIP == nil {
+		fmt.Fprintln(os.Stderr, "ERROR: IPv6 is not supported, sorry")
+		os.Exit(3)
+	}
+
 	proxyIP := net.ParseIP(flag.Arg(1))
 	if proxyIP == nil {
 		fmt.Fprintf(os.Stderr, "ERROR: Can't parse proxy IP '%s'\n", flag.Arg(1))
 		os.Exit(2)
 	}
 
-	answerIP := proxyIP.To4()
-	if answerIP == nil {
+	proxyIP = proxyIP.To4()
+	if proxyIP == nil {
 		fmt.Fprintln(os.Stderr, "ERROR: IPv6 is not supported, sorry")
 		os.Exit(3)
 	}
-	answer = append(answer, answerIP...)
+	answer = append(answer, proxyIP...)
 
 	parseList(flag.Arg(2))
 
 	var err error
 	upAddr := &net.UDPAddr{IP: upIP, Port: 53}
-	upstream, err = net.DialUDP("udp", nil, upAddr)
+	upstream, err = net.DialUDP("udp4", nil, upAddr)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "ERROR: %s\n", err)
 		os.Exit(2)
@@ -97,7 +101,7 @@ func main() {
 	defer upstream.Close()
 
 	proxyAddr := &net.UDPAddr{IP: proxyIP, Port: *flagDNSPort}
-	proxy, err = net.ListenUDP("udp", proxyAddr)
+	proxy, err = net.ListenUDP("udp4", proxyAddr)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "ERROR: %s\n", err)
 		os.Exit(2)
@@ -110,23 +114,7 @@ func main() {
 	go runServerUpstreamDNS()
 	go runServerLocalDNS()
 
-	sig := make(chan os.Signal)
-	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM, syscall.SIGUSR1)
-
-forever:
-	for {
-		select {
-		case s := <-sig:
-			switch s {
-			case syscall.SIGUSR1:
-				log.Println("SIGUSR1 received, reloading rules")
-				parseList(flag.Arg(2))
-			default:
-				log.Println("Signal received, stopping")
-				break forever
-			}
-		}
-	}
+	sigloop()
 }
 
 func parseList(path string) {
@@ -155,9 +143,9 @@ func runServerLocalDNS() {
 
 	buf := make([]byte, 512)
 	for {
-		n, _, _, addr, err := proxy.ReadMsgUDP(buf, nil)
+		n, addr, err := proxy.ReadFromUDP(buf)
 		if err != nil {
-			log.Println("DNS ERROR:", err)
+			log.Println("DNS ERROR (1):", err)
 			cntErrors.Add(1)
 			continue
 		}
@@ -174,9 +162,9 @@ func runServerUpstreamDNS() {
 
 	buf := make([]byte, 512)
 	for {
-		n, _, _, _, err := upstream.ReadMsgUDP(buf, nil)
+		n, _, err := upstream.ReadFromUDP(buf)
 		if err != nil {
-			log.Println("DNS ERROR:", err)
+			log.Println("DNS ERROR (2):", err)
 			cntErrors.Add(1)
 			continue
 		}
@@ -256,7 +244,7 @@ func handleDNS(msg []byte, from *net.UDPAddr) {
 		msg = append(msg, answer...)                 // payload
 		_, err := proxy.WriteTo(msg, from)
 		if err != nil {
-			log.Println("DNS ERROR:", err)
+			log.Println("DNS ERROR (3):", err)
 			cntErrors.Add(1)
 			return
 		}
@@ -270,7 +258,7 @@ func handleDNS(msg []byte, from *net.UDPAddr) {
 		queries[id] = &query{From: from, Host: host}
 		_, err := upstream.Write(msg)
 		if err != nil {
-			log.Println("DNS ERROR:", err)
+			log.Println("DNS ERROR (4):", err)
 			cntErrors.Add(1)
 			delete(queries, id)
 			return
