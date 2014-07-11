@@ -1,3 +1,5 @@
+// See LICENSE.txt for licensing information.
+
 package main
 
 import (
@@ -15,31 +17,60 @@ import (
 	"time"
 )
 
+// query wraps Host name and clients UDPAddr.
 type query struct {
 	Host string
 	From *net.UDPAddr
 }
 
+// String prints human-readable representation of a query.
 func (q *query) String() string {
 	return fmt.Sprintf("from %s about %s", q.From, q.Host)
 }
 
+// Flags.
 var (
 	flagVerbose  = flag.Bool("v", false, "be verbose")
 	flagHTTPPort = flag.Int("hport", 80, "HTTP server port")
 	flagDNSPort  = flag.Int("dport", 53, "DNS server port")
 	flagTimeout  = flag.Duration("t", 5*time.Second, "upstream query timeout")
-	cntMsgs      = expvar.NewInt("statsQuestions")
-	cntRelayed   = expvar.NewInt("statsRelayed")
-	cntBlocked   = expvar.NewInt("statsBlocked")
-	cntTimedout  = expvar.NewInt("statsTimedout")
-	cntServed    = expvar.NewInt("statsServed")
-	cntErrors    = expvar.NewInt("statsErrors")
-	cntRules     = expvar.NewInt("statsRules")
-	answer       = []byte("\x00\x01\x00\x01\xff\xff\xff\xff\x00\x04")
-	pixel        = "\x47\x49\x46\x38\x39\x61\x01\x00\x01\x00\x80\x00\x00\xff\xff" +
+)
+
+// Expvar exported statistics counters.
+var (
+	cntMsgs     = expvar.NewInt("statsQuestions")
+	cntRelayed  = expvar.NewInt("statsRelayed")
+	cntBlocked  = expvar.NewInt("statsBlocked")
+	cntTimedout = expvar.NewInt("statsTimedout")
+	cntServed   = expvar.NewInt("statsServed")
+	cntErrors   = expvar.NewInt("statsErrors")
+	cntRules    = expvar.NewInt("statsRules")
+)
+
+// 'Static' variables.
+// answer will become static once the proxy address bytes have been added.
+var (
+	// answer is the header of a DNS query response without the domain name and
+	// the resource data.
+	//
+	// Good sources of information on the DNS protocol can be found at:
+	// http://www.firewall.cx/networking-topics/protocols/domain-name-system-dns
+	// http://www.iana.org/assignments/dns-parameters/dns-parameters.xhtml
+	//
+	// Bytes described:
+	// 2 - Type        = 0x0001     - A
+	// 2 - Class       = 0x0001     - IN
+	// 4 - TTL         = 0xffffffff - if anyone respects it, this should reduce hits
+	// 2 - Data Length = 0x0004     - number of resource bytes, which for IN A IPv4 address is exactly 4
+	answer = []byte("\x00\x01\x00\x01\xff\xff\xff\xff\x00\x04")
+
+	// pixel is a hex representation of an 'empty' 1x1 GIF image.
+	pixel = "\x47\x49\x46\x38\x39\x61\x01\x00\x01\x00\x80\x00\x00\xff\xff" +
 		"\xff\x00\x00\x00\x21\xf9\x04\x01\x00\x00\x00\x00\x2c\x00\x00" +
 		"\x00\x00\x01\x00\x01\x00\x00\x02\x02\x44\x01\x00\x3b"
+)
+
+var (
 	proxy    *net.UDPConn
 	upstream *net.UDPConn
 	queries  map[int]*query
@@ -117,6 +148,7 @@ func main() {
 	sigloop()
 }
 
+// parseList loads a block list file into blocked and updates rules counter.
 func parseList(path string) {
 	file, err := os.Open(path)
 	if err != nil {
@@ -138,6 +170,7 @@ func parseList(path string) {
 	return
 }
 
+// runServerLocalDNS listens for incoming DNS queries and dispatches them for processing.
 func runServerLocalDNS() {
 	log.Println("DNS: Started local server at", proxy.LocalAddr())
 
@@ -157,6 +190,7 @@ func runServerLocalDNS() {
 	}
 }
 
+// runServerUpstreamDNS listens for upstream answers and relies them to original clients.
 func runServerUpstreamDNS() {
 	log.Println("DNS: Started upstream server")
 
@@ -186,6 +220,8 @@ func runServerUpstreamDNS() {
 	}
 }
 
+// handleDNS peeks the query and either relies it to the upstream DNS server or returns
+// a static answer with the 'fake' IP.
 func handleDNS(msg []byte, from *net.UDPAddr) {
 	var domain bytes.Buffer
 	var block bool
@@ -277,6 +313,7 @@ func handleDNS(msg []byte, from *net.UDPAddr) {
 	return
 }
 
+// handleHTTP returns an 'empty' 1x1 GIF image for any URL.
 func handleHTTP(w http.ResponseWriter, req *http.Request) {
 	if *flagVerbose {
 		log.Printf("HTTP: Request %s %s %s\n", req.Method, req.Host, req.RequestURI)
@@ -288,6 +325,7 @@ func handleHTTP(w http.ResponseWriter, req *http.Request) {
 	return
 }
 
+// runServerHTTP starts the HTTP server.
 func runServerHTTP(host string) {
 	addr := fmt.Sprintf("%s:%d", host, *flagHTTPPort)
 	http.HandleFunc("/", handleHTTP)

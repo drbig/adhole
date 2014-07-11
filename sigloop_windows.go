@@ -1,3 +1,4 @@
+// See LICENSE.txt for licensing information.
 // +build windows
 
 package main
@@ -8,6 +9,7 @@ import (
 	"os/signal"
 )
 
+// sigloop processes signals such as a CTRL-C hit.
 func sigloop() {
 	sig := make(chan os.Signal)
 	signal.Notify(sig, os.Interrupt, os.Kill)
