@@ -73,6 +73,7 @@ Thanks to the great [expvar](http://golang.org/pkg/expvar/) package you can
 monitor some statistics by visiting `http://proxy.addr/debug/vars`. The 
 following items are relevant:
 
+  * `stateIsRunning` - if false all queries are relied to upstream
   * `statsQuestions` - number of received queries
   * `statsRelayed` - number of queries relayed to the real server
   * `statsBlocked` - number of queries blocked
@@ -81,11 +82,15 @@ following items are relevant:
   * `statsErrors` - number of errors encountered
   * `statsRules` - number of items read from the blacklist
 
-You can also reload the blacklist file while AdHole is running by sending it a 
-`SIGUSR1` - i.e. ``kill -SIGUSR1 `pidof adhole` `` (this will only work on 
-Unix-like systems).
+You can also do the following actions via HTTP:
 
-**Tested on**
+  * `/debug/reload` - will reload the list.txt file
+  * `/debug/toggle` - toggle blocking on and off
+
+Note: the above could in theory be abused, next update will add a key to 
+prevent that.
+
+**Tested on:**
 
   * Linux - amd64, armv6l
   * Windows XP - x86
@@ -95,7 +100,6 @@ Unix-like systems).
   * Edge cases (multiple questions per query, anybody?)
   * Even less data shuffling
   * IPv4 only
-  * ~~Does Windows have `syscall.SIGUSR1`?~~ Of course it does not
 
 ## Copyright
 

@@ -1,5 +1,5 @@
 NAME=adhole
-PARTS=main.go sigloop_unix.go sigloop_windows.go
+PARTS=main.go
 
 $(NAME): $(PARTS)
 	gofmt -w $(PARTS)

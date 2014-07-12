@@ -13,7 +13,9 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/signal"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -26,6 +28,40 @@ type query struct {
 // String prints human-readable representation of a query.
 func (q *query) String() string {
 	return fmt.Sprintf("from %s about %s", q.From, q.Host)
+}
+
+// toggle is a synced bool wrapper for expvar.
+type toggle struct {
+	mu sync.RWMutex
+	b  bool
+}
+
+// String converts a toggle to string.
+func (t *toggle) String() string {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	if t.b {
+		return "true"
+	}
+
+	return "false"
+}
+
+// Value returns a toggle value.
+func (t *toggle) Value() bool {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+
+	return t.b
+}
+
+// Toggle toggles a toggle.
+func (t *toggle) Toggle() bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.b = !t.b
+
+	return t.b
 }
 
 // Flags.
@@ -75,7 +111,12 @@ var (
 	upstream *net.UDPConn
 	queries  map[int]*query
 	blocked  map[string]bool
+	blocking = &toggle{b: true}
 )
+
+func init() {
+	expvar.Publish("stateIsRunning", blocking)
+}
 
 func main() {
 	flag.Usage = func() {
@@ -145,7 +186,11 @@ func main() {
 	go runServerUpstreamDNS()
 	go runServerLocalDNS()
 
-	sigloop()
+	sig := make(chan os.Signal)
+	signal.Notify(sig, os.Interrupt, os.Kill)
+
+	<-sig
+	log.Println("Signal received, stopping")
 }
 
 // parseList loads a block list file into blocked and updates rules counter.
@@ -266,7 +311,7 @@ func handleDNS(msg []byte, from *net.UDPAddr) {
 		try++
 	}
 
-	if block {
+	if blocking.Value() && block {
 		if *flagVerbose {
 			log.Printf("DNS: Blocking (%d) %s\n", try, host)
 		}
@@ -325,10 +370,29 @@ func handleHTTP(w http.ResponseWriter, req *http.Request) {
 	return
 }
 
+// handleReload reloads the rules and redirects to the debug page.
+func handleReload(w http.ResponseWriter, req *http.Request) {
+	parseList(flag.Arg(2))
+	log.Println("Rules reloaded:", cntRules)
+	http.Redirect(w, req, "/debug/vars", http.StatusSeeOther)
+
+	return
+}
+
+// handleToggle toggles blocking and redirects to the debug page.
+func handleToggle(w http.ResponseWriter, req *http.Request) {
+	log.Println("Blocking toggled to:", blocking.Toggle())
+	http.Redirect(w, req, "/debug/vars", http.StatusSeeOther)
+
+	return
+}
+
 // runServerHTTP starts the HTTP server.
 func runServerHTTP(host string) {
 	addr := fmt.Sprintf("%s:%d", host, *flagHTTPPort)
 	http.HandleFunc("/", handleHTTP)
+	http.HandleFunc("/debug/reload", handleReload)
+	http.HandleFunc("/debug/toggle", handleToggle)
 	log.Println("HTTP: Started at", addr)
 	log.Fatalln(http.ListenAndServe(addr, nil))
 
