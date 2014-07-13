@@ -13,7 +13,6 @@ import (
 	"net"
 	"net/http"
 	"os"
-	"os/signal"
 	"strings"
 	"sync"
 	"time"
@@ -186,11 +185,7 @@ func main() {
 	go runServerUpstreamDNS()
 	go runServerLocalDNS()
 
-	sig := make(chan os.Signal)
-	signal.Notify(sig, os.Interrupt, os.Kill)
-
-	<-sig
-	log.Println("Signal received, stopping")
+	sigwait()
 }
 
 // parseList loads a block list file into blocked and updates rules counter.
