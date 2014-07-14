@@ -111,6 +111,8 @@ var (
 	queries  map[int]*query
 	blocked  map[string]bool
 	blocking = &toggle{b: true}
+	key      string
+	list     string
 )
 
 func init() {
@@ -119,7 +121,8 @@ func init() {
 
 func main() {
 	flag.Usage = func() {
-		fmt.Fprintf(os.Stderr, "Usage: %s [options] upstream proxy list.txt\n\n"+
+		fmt.Fprintf(os.Stderr, "Usage: %s [options] key upstream proxy list.txt\n\n"+
+			"key      - password used for /debug actions protection\n"+
 			"upstream - real upstream DNS address, e.g. 8.8.8.8\n"+
 			"proxy    - servers' bind address, e.g. 127.0.0.1\n"+
 			"list.txt - text file with domains to block\n\n",
@@ -130,14 +133,16 @@ func main() {
 	}
 	flag.Parse()
 
-	if len(flag.Args()) < 3 {
+	if len(flag.Args()) < 4 {
 		flag.Usage()
 		os.Exit(1)
 	}
 
-	upIP := net.ParseIP(flag.Arg(0))
+	key = flag.Arg(0)
+
+	upIP := net.ParseIP(flag.Arg(1))
 	if upIP == nil {
-		fmt.Fprintf(os.Stderr, "ERROR: Can't parse upstream IP '%s'\n", flag.Arg(0))
+		fmt.Fprintf(os.Stderr, "ERROR: Can't parse upstream IP '%s'\n", flag.Arg(1))
 		os.Exit(2)
 	}
 
@@ -147,9 +152,9 @@ func main() {
 		os.Exit(3)
 	}
 
-	proxyIP := net.ParseIP(flag.Arg(1))
+	proxyIP := net.ParseIP(flag.Arg(2))
 	if proxyIP == nil {
-		fmt.Fprintf(os.Stderr, "ERROR: Can't parse proxy IP '%s'\n", flag.Arg(1))
+		fmt.Fprintf(os.Stderr, "ERROR: Can't parse proxy IP '%s'\n", flag.Arg(2))
 		os.Exit(2)
 	}
 
@@ -160,7 +165,8 @@ func main() {
 	}
 	answer = append(answer, proxyIP...)
 
-	parseList(flag.Arg(2))
+	list = flag.Arg(3)
+	parseList(list)
 
 	var err error
 	upAddr := &net.UDPAddr{IP: upIP, Port: 53}
@@ -181,7 +187,7 @@ func main() {
 
 	queries = make(map[int]*query, 4096)
 
-	go runServerHTTP(flag.Arg(1))
+	go runServerHTTP(flag.Arg(2))
 	go runServerUpstreamDNS()
 	go runServerLocalDNS()
 
@@ -353,6 +359,16 @@ func handleDNS(msg []byte, from *net.UDPAddr) {
 	return
 }
 
+// auth checks if user supplied proper key.
+func auth(req *http.Request) bool {
+	if val := req.FormValue("key"); val == key {
+		return true
+	}
+	log.Printf("HTTP: Unauthorized access to %s from %s\n", req.RequestURI, req.RemoteAddr)
+
+	return false
+}
+
 // handleHTTP returns an 'empty' 1x1 GIF image for any URL.
 func handleHTTP(w http.ResponseWriter, req *http.Request) {
 	if *flagVerbose {
@@ -367,8 +383,10 @@ func handleHTTP(w http.ResponseWriter, req *http.Request) {
 
 // handleReload reloads the rules and redirects to the debug page.
 func handleReload(w http.ResponseWriter, req *http.Request) {
-	parseList(flag.Arg(2))
-	log.Println("Rules reloaded:", cntRules)
+	if auth(req) {
+		parseList(list)
+		log.Println("Rules reloaded:", cntRules)
+	}
 	http.Redirect(w, req, "/debug/vars", http.StatusSeeOther)
 
 	return
@@ -376,7 +394,9 @@ func handleReload(w http.ResponseWriter, req *http.Request) {
 
 // handleToggle toggles blocking and redirects to the debug page.
 func handleToggle(w http.ResponseWriter, req *http.Request) {
-	log.Println("Blocking toggled to:", blocking.Toggle())
+	if auth(req) {
+		log.Println("Blocking toggled to:", blocking.Toggle())
+	}
 	http.Redirect(w, req, "/debug/vars", http.StatusSeeOther)
 
 	return

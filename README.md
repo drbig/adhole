@@ -24,8 +24,9 @@ little adventure in dealing with binary protocols the low-level way.
 
 ## Usage
 
-    Usage: ./adhole [options] upstream proxy list.txt
+    Usage: ./adhole [options] key upstream proxy list.txt
     
+    key      - password used for /debug actions protection
     upstream - real upstream DNS address, e.g. 8.8.8.8
     proxy    - servers' bind address, e.g. 127.0.0.1
     list.txt - text file with domains to block
@@ -87,8 +88,9 @@ You can also do the following actions via HTTP:
   * `/debug/reload` - will reload the list.txt file
   * `/debug/toggle` - toggle blocking on and off
 
-Note: the above could in theory be abused, next update will add a key to 
-prevent that.
+You'll need to append `&key=YOURKEY` to the above. Unauthorized hits will 
+be logged. Note that you may set the key to `""` (i.e. an empty key) and 
+therefore disable the authentication.
 
 **Tested on:**
 
