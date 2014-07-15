@@ -42,7 +42,6 @@ func (t *toggle) String() string {
 	if t.b {
 		return "true"
 	}
-
 	return "false"
 }
 
@@ -50,7 +49,6 @@ func (t *toggle) String() string {
 func (t *toggle) Value() bool {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
-
 	return t.b
 }
 
@@ -59,7 +57,6 @@ func (t *toggle) Toggle() bool {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.b = !t.b
-
 	return t.b
 }
 
@@ -139,32 +136,9 @@ func main() {
 	}
 
 	key = flag.Arg(0)
-
-	upIP := net.ParseIP(flag.Arg(1))
-	if upIP == nil {
-		fmt.Fprintf(os.Stderr, "ERROR: Can't parse upstream IP '%s'\n", flag.Arg(1))
-		os.Exit(2)
-	}
-
-	upIP = upIP.To4()
-	if upIP == nil {
-		fmt.Fprintln(os.Stderr, "ERROR: IPv6 is not supported, sorry")
-		os.Exit(3)
-	}
-
-	proxyIP := net.ParseIP(flag.Arg(2))
-	if proxyIP == nil {
-		fmt.Fprintf(os.Stderr, "ERROR: Can't parse proxy IP '%s'\n", flag.Arg(2))
-		os.Exit(2)
-	}
-
-	proxyIP = proxyIP.To4()
-	if proxyIP == nil {
-		fmt.Fprintln(os.Stderr, "ERROR: IPv6 is not supported, sorry")
-		os.Exit(3)
-	}
+	upIP := parseIPv4(flag.Arg(1), "upstream")
+	proxyIP := parseIPv4(flag.Arg(2), "proxy")
 	answer = append(answer, proxyIP...)
-
 	list = flag.Arg(3)
 	parseList(list)
 
@@ -187,11 +161,26 @@ func main() {
 
 	queries = make(map[int]*query, 4096)
 
-	go runServerHTTP(flag.Arg(2))
+	go runServerHTTP(proxyIP.String())
 	go runServerUpstreamDNS()
 	go runServerLocalDNS()
 
 	sigwait()
+}
+
+// parseIPv4 parses a string to an IPv4 address or dies.
+func parseIPv4(arg string, msg string) (ip net.IP) {
+	ip = net.ParseIP(arg)
+	if ip == nil {
+		fmt.Fprintf(os.Stderr, "ERROR: Can't parse %s IP '%s'\n", msg, arg)
+		os.Exit(2)
+	}
+	ip = ip.To4()
+	if ip == nil {
+		fmt.Fprintln(os.Stderr, "ERROR: IPv6 is not supported, sorry")
+		os.Exit(3)
+	}
+	return
 }
 
 // parseList loads a block list file into blocked and updates rules counter.
@@ -212,7 +201,6 @@ func parseList(path string) {
 	}
 	log.Printf("DNS: Parsed %d entries from list\n", counter)
 	cntRules.Set(int64(counter))
-
 	return
 }
 
@@ -355,17 +343,15 @@ func handleDNS(msg []byte, from *net.UDPAddr) {
 			return
 		}(id)
 	}
-
 	return
 }
 
-// auth checks if user supplied proper key.
-func auth(req *http.Request) bool {
+// authHTTP checks if user supplied proper key.
+func authHTTP(req *http.Request) bool {
 	if val := req.FormValue("key"); val == key {
 		return true
 	}
 	log.Printf("HTTP: Unauthorized access to %s from %s\n", req.RequestURI, req.RemoteAddr)
-
 	return false
 }
 
@@ -377,28 +363,25 @@ func handleHTTP(w http.ResponseWriter, req *http.Request) {
 	cntServed.Add(1)
 	w.Header()["Content-type"] = []string{"image/gif"}
 	io.WriteString(w, pixel)
-
 	return
 }
 
 // handleReload reloads the rules and redirects to the debug page.
 func handleReload(w http.ResponseWriter, req *http.Request) {
-	if auth(req) {
+	if authHTTP(req) {
 		parseList(list)
 		log.Println("Rules reloaded:", cntRules)
 	}
 	http.Redirect(w, req, "/debug/vars", http.StatusSeeOther)
-
 	return
 }
 
 // handleToggle toggles blocking and redirects to the debug page.
 func handleToggle(w http.ResponseWriter, req *http.Request) {
-	if auth(req) {
+	if authHTTP(req) {
 		log.Println("Blocking toggled to:", blocking.Toggle())
 	}
 	http.Redirect(w, req, "/debug/vars", http.StatusSeeOther)
-
 	return
 }
 
@@ -410,7 +393,6 @@ func runServerHTTP(host string) {
 	http.HandleFunc("/debug/toggle", handleToggle)
 	log.Println("HTTP: Started at", addr)
 	log.Fatalln(http.ListenAndServe(addr, nil))
-
 	panic("not reachable")
 }
 
