@@ -65,7 +65,7 @@ file:
     After=network.target
     
     [Service]
-    ExecStart=/home/user/adhole 192.168.0.3 192.168.0.21 /home/user/blacklist.txt
+    ExecStart=/home/user/adhole SecretKey 192.168.0.3 192.168.0.21 /home/user/blacklist.txt
     
     [Install]
     WantedBy=multi-user.target
