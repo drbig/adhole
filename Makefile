@@ -1,15 +1,16 @@
-NAME=adhole
-PARTS=main.go sigwait_unix.go sigwait_windows.go
+all: adhole genlist
 
-$(NAME): $(PARTS)
-	gofmt -w $(PARTS)
+adhole/adhole: adhole/main.go adhole/sigwait_unix.go adhole/sigwait_windows.go
+	cd adhole; \
+	gofmt -w *.go; \
 	go build .
 
-docs: doc.go
-	godoc -notes="BUG|TODO" .
+genlist/genlist: genlist/main.go genlist/sources.go
+	cd genlist; \
+	gofmt -w *.go; \
+	go build .
 
-test: $(PARTS)
-	go tool vet -all -v .
-
-.PHONY: test
-.PHONY: docs
+adhole: adhole/adhole
+genlist: genlist/genlist
+.PHONY: adhole
+.PHONY: genlist

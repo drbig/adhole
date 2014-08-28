@@ -22,8 +22,23 @@ instead of a full DNS stack (and especially parsing) I work directly on
 `[]byte` slices and try to reuse the data already on hand. It was also a nice 
 little adventure in dealing with binary protocols the low-level way.
 
+## Building
+
+On a Unix-like system you should be able to get everything built using just:
+
+    $ make
+    cd adhole; \
+    gofmt -w *.go; \
+    go build .
+    cd genlist; \
+    gofmt -w *.go; \
+    go build .
+
+Otherwise just run `go build .` in either or both of `adhole/` and `genlist/`.
+
 ## Usage
 
+    $ ./adhole
     Usage: ./adhole [options] key upstream proxy list.txt
     
     key      - password used for /debug actions protection
@@ -56,6 +71,34 @@ as a plain list of hostnames (no HTML)' with 'no links back to this page' and
 [this](http://pgl.yoyo.org/adservers/serverlist.php?hostformat=nohtml&showintro=
 0&startdate%5Bday%5D=&startdate%5Bmonth%5D=&startdate%5Byear%5D=&mimetype=plaint
 ext) should work as a direct link to the current list...
+
+Or you can use the experimental `genlist` utility. Currently I've implemented 
+fetching for the above list and for [EasyList](https://easylist.adblockplus.o
+rg/en/). If you have a better / your favourite source of domain blacklist
+please look at `sources.go` and implement a fetcher. As a side note, sources 
+that are meant to be used by AdBlock (or equivalent) are not the best 
+candidates here, due to the fact that AdBlock is much more subtle, i.e. with 
+current extraction method a list generated with EasyList input will block 
+google.com, bbc.co.uk and imdb.com (and probably many more sites that you 
+care about). Also the whole thing is brittle by nature, hence the permanent 
+'experimental' status.
+
+    $ ./genlist
+    Usage: ./genlist [options] list|all|source source source...
+    
+    list   - show available sources
+    all    - combine all sources
+    source - use only specified source(s)
+    
+    $ ./genlist list
+    There are 2 sources available:
+    01 - pgl        - http://pgl.yoyo.org/adservers
+    02 - easylist   - https://easylist.adblockplus.org
+    
+    $ ./genlist all > /tmp/blacklist.txt
+    Processing list for pgl
+    Processing list for easylist
+    Got 9829 domains total
 
 Example [systemd](http://www.freedesktop.org/wiki/Software/systemd/) service 
 file:
@@ -95,7 +138,14 @@ therefore disable the authentication.
 **Tested on:**
 
   * Linux - amd64, armv6l
-  * Windows XP - x86
+  * Windows XP - i686
+
+## Contributing
+
+Feel free to either use GitHub's pull request or send me patches directly.
+
+I also welcome any feedback regarding stability and what OS/platform you run 
+AdHole on (just out of curiosity).
 
 ## Bugs / Todo
 
