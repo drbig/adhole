@@ -73,8 +73,9 @@ as a plain list of hostnames (no HTML)' with 'no links back to this page' and
 ext) should work as a direct link to the current list...
 
 Or you can use the experimental `genlist` utility. Currently I've implemented 
-fetching for the above list and for [EasyList](https://easylist.adblockplus.o
-rg/en/). If you have a better / your favourite source of domain blacklist
+fetching for the above list and for 
+[EasyList](https://easylist.adblockplus.org/en/). 
+If you have a better / your favourite source of domain blacklist 
 please look at `sources.go` and implement a fetcher. As a side note, sources 
 that are meant to be used by AdBlock (or equivalent) are not the best 
 candidates here, due to the fact that AdBlock is much more subtle, i.e. with 
