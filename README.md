@@ -1,4 +1,4 @@
-# adhole
+# adhole [![Build Status](https://travis-ci.org/drbig/adhole.svg?branch=master)](https://travis-ci.org/drbig/adhole)
 
 AdHole is a simple transparent advertisement and tracking blocker intended for 
 personal use.
