@@ -22,6 +22,10 @@ instead of a full DNS stack (and especially parsing) I work directly on
 `[]byte` slices and try to reuse the data already on hand. It was also a nice 
 little adventure in dealing with binary protocols the low-level way.
 
+## Changelog
+
+- **2016-11-11** Added locking around the queries map. Can't really test it as the RPi is obviously single-core.
+
 ## Building
 
 On a Unix-like system you should be able to get everything built using just:
@@ -156,6 +160,6 @@ AdHole on (just out of curiosity).
 
 ## Copyright
 
-Copyright (c) 2014 Piotr S. Staszewski
+Copyright (c) 2014 - 2016 Piotr S. Staszewski
 
 Absolutely no warranty. See LICENSE.txt for details.

@@ -24,6 +24,12 @@ type query struct {
 	From *net.UDPAddr
 }
 
+// queryMap is a synced map for keeping track of relied queries.
+type queryMap struct {
+	mu sync.RWMutex
+	qs map[int]*query
+}
+
 // String prints human-readable representation of a query.
 func (q *query) String() string {
 	return fmt.Sprintf("from %s about %s", q.From, q.Host)
@@ -105,7 +111,7 @@ var (
 var (
 	proxy    *net.UDPConn
 	upstream *net.UDPConn
-	queries  map[int]*query
+	queries  queryMap
 	blocked  map[string]bool
 	blocking = &toggle{b: true}
 	key      string
@@ -159,7 +165,7 @@ func main() {
 	}
 	defer proxy.Close()
 
-	queries = make(map[int]*query, 4096)
+	queries.qs = make(map[int]*query, 4096)
 
 	go runServerHTTP(proxyIP.String())
 	go runServerUpstreamDNS()
@@ -238,8 +244,12 @@ func runServerUpstreamDNS() {
 		}
 
 		id := int(uint16(buf[0])<<8 + uint16(buf[1]))
-		if query, ok := queries[id]; ok {
-			delete(queries, id)
+		queries.mu.RLock()
+		if query, ok := queries.qs[id]; ok {
+			queries.mu.RUnlock()
+			queries.mu.Lock()
+			delete(queries.qs, id)
+			queries.mu.Unlock()
 			_, err := proxy.WriteTo(buf[:n], query.From)
 			if err != nil {
 				log.Printf("DNS ERROR: Query id %d %s %s", id, query, err)
@@ -250,6 +260,8 @@ func runServerUpstreamDNS() {
 				log.Println("DNS: Relayed answer to query", id)
 			}
 			cntRelayed.Add(1)
+		} else {
+			queries.mu.RUnlock()
 		}
 	}
 }
@@ -325,20 +337,30 @@ func handleDNS(msg []byte, from *net.UDPAddr) {
 		if *flagVerbose {
 			log.Println("DNS: Asking upstream")
 		}
-		queries[id] = &query{From: from, Host: host}
+		queries.mu.Lock()
+		queries.qs[id] = &query{From: from, Host: host}
+		queries.mu.Unlock()
 		_, err := upstream.Write(msg)
 		if err != nil {
 			log.Println("DNS ERROR (4):", err)
 			cntErrors.Add(1)
-			delete(queries, id)
+			queries.mu.Lock()
+			delete(queries.qs, id)
+			queries.mu.Unlock()
 			return
 		}
 		go func(queryID int) {
 			time.Sleep(*flagTimeout)
-			if query, ok := queries[queryID]; ok {
+			queries.mu.RLock()
+			if query, ok := queries.qs[queryID]; ok {
 				fmt.Printf("DNS WARN: Query id %d %s timed out\n", queryID, query)
 				cntTimedout.Add(1)
-				delete(queries, queryID)
+				queries.mu.RUnlock()
+				queries.mu.Lock()
+				delete(queries.qs, queryID)
+				queries.mu.Unlock()
+			} else {
+				queries.mu.RUnlock()
 			}
 			return
 		}(id)
