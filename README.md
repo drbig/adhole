@@ -7,8 +7,8 @@ It works by providing two elements: first a DNS server that, based on a list of
 domains, either relies the query to a real server, or returns its own IP 
 address; and a micro HTTP server that serves an empty GIF image for any 
 request. As such its functionality is akin to 
-[AdBlock](https://chrome.google.com/webstore/detail/adblock/gighmmpiobklfepjocna
-mgkkbiglidom?hl=en), but less pretty (you'll probably see empty space where ads 
+[AdBlock](https://chrome.google.com/webstore/detail/adblock/gighmmpiobklfepjocnamgkkbiglidom?hl=en)
+, but less pretty (you'll probably see empty space where ads 
 used to be) and completely transparent (i.e. will work for any browser, on any 
 OS on any machine, locally or over any network). Note that you can just as well 
 block *any* domains.
@@ -72,9 +72,8 @@ To get a decent list of domains to block I recommend going
 [here](http://pgl.yoyo.org/adservers/) and generating a 'plain non-HTML list -- 
 as a plain list of hostnames (no HTML)' with 'no links back to this page' and 
 'view list as plain text:' ticked (that was so verbose...). Or alternatively 
-[this](http://pgl.yoyo.org/adservers/serverlist.php?hostformat=nohtml&showintro=
-0&startdate%5Bday%5D=&startdate%5Bmonth%5D=&startdate%5Byear%5D=&mimetype=plaint
-ext) should work as a direct link to the current list...
+[this](http://pgl.yoyo.org/adservers/serverlist.php?hostformat=nohtml&showintro=0&startdate%5Bday%5D=&startdate%5Bmonth%5D=&startdate%5Byear%5D=&mimetype=plaintext)
+ should work as a direct link to the current list...
 
 Or you can use the experimental `genlist` utility. Currently I've implemented 
 fetching for the above list and for 
