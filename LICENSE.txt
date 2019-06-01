@@ -1,4 +1,4 @@
-Copyright (c) 2014, Piotr S. Staszewski
+Copyright (c) 2014 - 2019, Piotr S. Staszewski
 All rights reserved.
 
 Redistribution and use in source and binary forms, with or without 

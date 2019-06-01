@@ -159,6 +159,6 @@ AdHole on (just out of curiosity).
 
 ## Copyright
 
-Copyright (c) 2014 - 2016 Piotr S. Staszewski
+Copyright (c) 2014 - 2019 Piotr S. Staszewski
 
 Absolutely no warranty. See LICENSE.txt for details.
